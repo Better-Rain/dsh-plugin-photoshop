@@ -105,6 +105,18 @@ async function main() {
     timeout_ms: 300000,
   }))
 
+  heading('photoshop_cutout — remove-background, feather, max_side')
+  const secondReport = await callTool('photoshop_cutout', {
+    paths: [join(INPUT_DIR, 'sample-a.jpg')],
+    output_dir: OUTPUT_DIR,
+    mode: 'remove-background',
+    suffix: '-rb',
+    feather_px: 1,
+    max_side: 300,
+    timeout_ms: 300000,
+  })
+  line(secondReport)
+
   heading('photoshop_run_jsx — the escape hatch')
   line(await callTool('photoshop_run_jsx', {
     script: "app.name + ' v' + app.version + ' | docs open: ' + app.documents.length",
@@ -116,6 +128,9 @@ async function main() {
   if (!/alpha\b/.test(report)) failures.push('no alpha verification line in the report')
   if (/NO ALPHA/.test(report)) failures.push('an output PNG came back without an alpha channel')
   if (/bridge:/.test(report)) failures.push('the bridge reported a failure')
+  if (!/\[ok\]/.test(secondReport)) failures.push('remove-background mode produced no successful cutout')
+  if (/NO ALPHA/.test(secondReport)) failures.push('remove-background mode produced an opaque output')
+  if (/feather warning|trim warning/.test(secondReport)) failures.push('feather_px or trim was rejected by this Photoshop')
 
   heading('verdict')
   if (failures.length === 0) {

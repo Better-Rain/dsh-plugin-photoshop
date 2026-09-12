@@ -1,0 +1,3 @@
+# Normalize line endings: the sources are written with LF and are consumed by
+# Node and by Git hosts, so check them out as LF everywhere.
+* text=auto eol=lf
