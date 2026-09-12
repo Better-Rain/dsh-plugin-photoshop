@@ -122,16 +122,17 @@ setup and resizing, layer creation / naming / ordering / grouping, masks,
 opacity, blend modes, layer styles, tonal and colour adjustments, filters, text,
 fills, selections, history and metadata.
 
-**89 operations** in eight groups:
+**91 operations** in nine groups:
 
 | Group | Count | Covers |
 | --- | --- | --- |
-| `document` | 15 | open, new, close, save as, resize, canvas, crop, rotate, flip, trim, flatten, merge, duplicate, mode, profile |
+| `document` | 16 | open, new, close, save as, resize, canvas, crop, rotate, flip, trim, flatten, merge, duplicate, mode, profile, export layers |
 | `layer` | 21 | create, delete, duplicate, rename, move, group, ungroup, opacity, fill opacity, blend mode, visibility, lock, unlock background, rasterize, smart object, merge down, masks, clipping mask, layer styles |
 | `adjust` | 12 | levels, brightness/contrast, hue/saturation, vibrance, black & white, desaturate, invert, threshold, posterize, equalize, auto levels, auto contrast |
 | `filter` | 20 | gaussian / motion / radial / smart blur, unsharp mask, sharpen ×3, add noise, dust & scratches, median, despeckle, high pass, maximum, minimum, offset, custom filter, pinch, spherize, twirl |
 | `select` | 14 | all, none, invert, clear, subject, sky, remove background, expand, contract, feather, smooth, border, save/load channel |
 | `paint` | 4 | add text, edit text, fill, add colour layer |
+| `action` | 1 | list the Actions panel (playing is deliberately not offered — see the roadmap) |
 | `history` | 2 | step backward, step forward |
 | `metadata` | 1 | set document metadata |
 

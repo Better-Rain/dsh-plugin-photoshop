@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.4.0
+
+- **`export_layers`** — write every layer of a document to its own file. Each
+  layer is revealed on its own and saved, so the outputs keep the full canvas and
+  line up with each other, and every layer's original visibility is restored
+  afterwards, including when something fails.
+- **`list_actions`** — read the Actions panel: the sets, and the actions in the
+  currently targeted one. Photoshop exposes sets by index and one set's actions by
+  a reference chained through that index, but the chained form answers with a
+  synthesised label rather than the action's real name, so the usable names come
+  from the unchained form.
+- **Playing an action is deliberately not offered**, and the reason is recorded in
+  `docs/ROADMAP.md`. A recorded action can open a dialog, `DialogModes.NO` does
+  not suppress it, and a call blocked behind a modal cannot be cancelled from the
+  plugin's side — every later call is refused until a human clicks. `list_actions`
+  documents this in its own summary, and the `photoshop` skill tells the agent to
+  ask the user to run the action instead.
+- **The bridge now retries on `RPC_E_SERVERCALL_RETRYLATER` for two minutes.**
+  Photoshop refuses COM calls with that while it is busy — mid-filter, with a
+  dialog up, or because the user is working in it — and it means "ask again
+  shortly", not "failed". The `PHOTOSHOP_BUSY` message now names the real cause
+  and the real remedy rather than looking like a plugin defect.
+- Operation plans pre-create any directory an operation declares through
+  `output_dir`, because ExtendScript's `Folder` does not reliably offer a way to
+  create one.
+- Plans can report notes now (`export_layers` says what it wrote and where), and
+  those notes appear in the report.
+
 ## 1.3.0
 
 - **`photoshop_batch`** — apply one operation plan to many files inside a single

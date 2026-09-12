@@ -12,7 +12,7 @@
  * cutouts can be looked at afterwards.
  */
 
-import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -26,6 +26,7 @@ const SANDBOX = join(WORKSPACE, '_research', 'e2e')
 const INPUT_DIR = join(SANDBOX, 'in')
 const OUTPUT_DIR = join(SANDBOX, 'out')
 const BATCH_OUT = join(SANDBOX, 'batch-out')
+const LAYERS_OUT = join(SANDBOX, 'layers-out')
 const FIXTURE_PATH = join(SANDBOX, 'fixture.psd').replace(/\\/g, '/')
 
 /**
@@ -120,6 +121,7 @@ function prepareInputs() {
   // skipped as "already exists" and read as a failure.
   rmSync(OUTPUT_DIR, { recursive: true, force: true })
   rmSync(BATCH_OUT, { recursive: true, force: true })
+  rmSync(LAYERS_OUT, { recursive: true, force: true })
   mkdirSync(join(INPUT_DIR, 'nested'), { recursive: true })
   mkdirSync(OUTPUT_DIR, { recursive: true })
   const explicit = process.argv[2]
@@ -437,6 +439,22 @@ for (var i = app.documents.length - 1; i >= 0; i--) {
   if (!/"save_as" cannot appear in a batch plan/.test(refused)) {
     failures.push('a batch plan containing save_as was not refused')
   }
+
+  heading('photoshop_apply — export_layers and list_actions')
+  const exportReport = await callTool('photoshop_apply', {
+    ops: [
+      { op: 'export_layers', output_dir: LAYERS_OUT, format: 'png' },
+      { op: 'list_actions' },
+    ],
+    single_undo_step: false,
+    timeout_ms: 600000,
+  })
+  line(exportReport)
+  const exported = existsSync(LAYERS_OUT) ? readdirSync(LAYERS_OUT) : []
+  line(`files written: ${exported.length}${exported.length > 0 ? ` — ${exported.slice(0, 8).join(', ')}` : ''}`)
+  if (!/^Applied 2 operations/.test(exportReport)) planFailures.push('export_layers / list_actions')
+  if (exported.length < 3) failures.push(`export_layers wrote only ${exported.length} file(s) for a document with more layers than that`)
+  if (!/action sets/.test(exportReport)) failures.push('list_actions did not report the action sets')
 
   heading('photoshop_apply — a plan that must fail, and say why')
   const badLayer = await callTool('photoshop_apply', {

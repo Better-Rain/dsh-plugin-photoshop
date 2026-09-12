@@ -141,22 +141,23 @@ executed inside one Photoshop session, wrapped in a single undo step when a
 document is already open. Plus `photoshop_reference`, which returns the
 vocabulary on demand so the standing prompt stays small.
 
-89 operations across eight groups:
-
+91 operations across nine groups:
 | Group | Count | Covers |
 | --- | --- | --- |
-| `document` | 15 | open, new, close, save_as, resize, canvas, crop, rotate, flip, trim, flatten, merge, duplicate, mode, profile |
+| `document` | 16 | open, new, close, save_as, resize, canvas, crop, rotate, flip, trim, flatten, merge, duplicate, mode, profile, export_layers |
 | `layer` | 21 | create, delete, duplicate, rename, move, group, ungroup, opacity, fill opacity, blend mode, visibility, lock, unlock background, rasterize, smart object, merge down, masks (add / delete / apply / invert), clipping mask, layer styles |
 | `adjust` | 12 | levels, brightness/contrast, hue/saturation, vibrance, black & white, desaturate, invert, threshold, posterize, equalize, auto levels, auto contrast |
 | `filter` | 20 | gaussian / motion / radial / smart blur, unsharp mask, sharpen ×3, add noise, dust & scratches, median, despeckle, high pass, maximum, minimum, offset, custom filter, pinch, spherize, twirl |
 | `select` | 14 | all, none, invert, clear, subject, sky, remove background, expand, contract, feather, smooth, border, save/load channel |
 | `paint` | 4 | add text, edit text, fill, add colour layer |
+| `action` | 1 | list the Actions panel (playing is deliberately not offered — see Phase 3) |
 | `history` | 2 | step backward, step forward |
 | `metadata` | 1 | set document metadata |
 
-**Verified by `test/e2e.mjs`**: 102 operations across seven plans, applied against
-a real Photoshop, with a fixture check that the documented vocabulary and the
-implemented handlers are the same 89 names.
+**Verified by `test/e2e.mjs`**: 102 operations across seven plans plus
+`export_layers` and `list_actions`, applied against a real Photoshop, with a
+fixture check that the documented vocabulary and the implemented handlers are the
+same list.
 
 #### What building it taught us about this Photoshop
 
@@ -192,9 +193,7 @@ Every one of these was a bug first, and each one is now encoded in the handlers:
   nothing applied; the recorded current operation is now what distinguishes "an
   operation failed" from "grouping is unavailable here".
 
-### Phase 3 — batch and production — mostly shipped
-
-**Shipped:**
+### Phase 3 — batch and production ✅ shipped
 
 - **`photoshop_batch`** — the same operation plan over many files, inside one
   Photoshop session. Each file is opened, run through the plan, saved to the
@@ -203,18 +202,47 @@ Every one of these was a bug first, and each one is now encoded in the handlers:
   contain `open`, `new_document`, `close` or `save_as`, because the batch owns
   those steps — refused with the reason rather than allowed to do something
   surprising.
+- **`export_layers`** — every layer of a document to its own file, each keeping
+  the full canvas so the outputs line up, with original visibility restored
+  afterwards (including on failure).
+- **`list_actions`** — read the Actions panel: the sets, and the actions in the
+  currently targeted one. Photoshop exposes sets by index and one set's actions
+  by a reference chained through that index, but the chained form answers with a
+  synthesised label rather than the action's real name, so the usable names come
+  from the unchained form.
 - **The `photoshop` skill** — registered through `ctx.skills.register`, carrying
   the workflow, the addressing scheme, the safety rules and this installation's
   quirks. Loaded on demand, so the standing prompt stays small.
 
-**Remaining:**
+**`play_action` was investigated and deliberately rejected.** The evidence:
 
-- `play_action` — run a recorded `.atn` action, including the sets shipped with
-  Photoshop, and the batch equivalent.
-- `export_layers` — write each layer of one document to its own file.
-- Contact sheet, PDF presentation and photomerge wrappers around the `app`
-  methods reflection found (`makeContactSheet`, `makePDFPresentation`,
-  `makePhotomerge`, `makePicturePackage`).
+- A recorded action can open a dialog. `app.doAction` was run over Photoshop's
+  own shipped actions, and one of them opened the Channel Mixer dialog while
+  another raised a playback-error alert asking Continue or Stop.
+- **`DialogModes.NO` does not suppress those dialogs** — they are governed by the
+  Actions panel's playback options, not by the scripting dialog mode.
+- A COM call blocked behind a modal cannot be cancelled from this side. The
+  timeout stops our call while Photoshop keeps waiting for a click that no script
+  can deliver, and *every later call* is then refused with
+  `RPC_E_SERVERCALL_RETRYLATER` until a human dismisses the dialog. During this
+  investigation that left Photoshop unusable for about twenty minutes.
+- Killing the client does not stop the server: the script that timed out kept
+  running inside Photoshop, raising a fresh dialog per failing action.
+
+So the vocabulary offers the safe half — reading the panel — and leaves playing
+to the human, who can see the dialog. `list_actions` says so in its own summary.
+
+Two robustness changes came out of it:
+
+- The bridge now **retries on `RPC_E_SERVERCALL_RETRYLATER` for two minutes**
+  before failing. Photoshop answers with that while it is busy — mid-filter, with
+  a dialog up, or simply because the user is working in it — and it means "ask
+  again shortly", not "failed". Reporting it as a failure is how a plugin looks
+  broken while the user is merely using their own application.
+- The failure message for `PHOTOSHOP_BUSY` now points at the real cause and the
+  real remedy: look at the Photoshop window, because something is waiting for a
+  click and the plugin's channel is blocked by the very thing it would use to
+  clear it.
 
 ### Phase 4 — AI and cloud, with honest availability reporting
 
