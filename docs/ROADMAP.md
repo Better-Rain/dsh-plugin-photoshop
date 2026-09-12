@@ -1,0 +1,193 @@
+# Roadmap
+
+Goal: **one sentence lets the agent operate Photoshop.** Everything below is
+ordered so that each phase leaves the plugin more useful than the last, and no
+phase depends on a later one.
+
+## How this plan was grounded
+
+Nothing here is copied from a reference manual. Two probes run against the
+installed Photoshop establish what this build can actually do:
+
+- `test/probe-capabilities.mjs` — ExtendScript reflection. `app.reflect.properties`
+  and `.methods` enumerate the authoritative API surface of the *installed*
+  version, so a member documented by Adobe but pruned in 2026 shows up as absent.
+  It also resolves an ActionManager catalogue.
+- `test/probe-operations.mjs` — execution matrix. Every candidate operation is
+  attempted for real, each on its own scratch document.
+
+Two findings shaped the whole plan:
+
+1. **A resolved ActionManager id proves nothing.** Photoshop 2026 resolves all
+   186 catalogue names, including `selectSubject` (4561) — which then refuses to
+   execute with *command not currently available*, while `autoCutout` (496) works
+   fine. Capability therefore comes from execution results only.
+2. **Most first-round failures were our recipes, not Photoshop's limits.** Wrong
+   event names (`groupLayers` vs `groupLayersEvent`), masks and layer styles
+   attempted on a locked background layer, a 9-value kernel where 25 are wanted,
+   text built through a descriptor where `LayerKind.TEXT` already exists. The
+   corrected round-2 recipes moved 14 of those into the verified column.
+
+### Verified API surface (reflection)
+
+| Object | Properties | Methods |
+| --- | --- | --- |
+| `app` | 29 | 44 |
+| `document` | 42 | 26 |
+| `layer` | 28 | **70** |
+| `selection` | 5 | 25 |
+
+`selection.refineEdge` and `selection.selectAndMask` do **not** exist — edge
+refinement is a modal workspace, so headless refinement has to be assembled from
+`feather` / `expand` / `contract` / `smooth` / `selectBorder`.
+
+### Verified operations (execution)
+
+**Working — confirmed by execution**
+
+| Area | Operations |
+| --- | --- |
+| AI selection | `autoCutout` (Select Subject), `removeBackground`, `selectSky` |
+| Selection | `colorRange`, `selectBorder`, channel store/load, `makeWorkPath`, `invert`, `feather`, `clear` |
+| Content-aware | Content-Aware Fill via `fill` + `contentAware` mode |
+| Document | `crop`, `resizeCanvas`, `resizeImage`, `changeMode`, `convertProfile`, `trim` (transparent), `flatten`, `mergeVisibleLayers`, `duplicate`, `suspendHistory`, XMP read/write |
+| Layers | `groupLayersEvent`, `ungroupLayersEvent`, clipping mask, convert to smart object, rasterize, duplicate, translate, rotate, resize, remove, blend mode, opacity |
+| Layer styles | drop shadow, stroke (on an unlocked layer) |
+| Text | create via `LayerKind.TEXT`, edit contents / size / colour / justification, point position |
+| Adjustments | `adjustLevels`, `hueSaturation`, `vibrance`, `blackAndWhite` |
+| Filters | `applyGaussianBlur`, `applyMotionBlur`, `applyRadialBlur`, `applyUnSharpMask`, `applyPinch`, `applySpherize`, `applyCustomFilter` (5×5 kernel) |
+| History | step backward / forward, `suspendHistory` grouping |
+| Saving | `saveAs` PNG / JPEG / PSD, `exportDocument` + Save-for-Web PNG |
+| App | `featureEnabled`, custom-options round trip |
+
+**Correct recipe still to be finalised — implementation-phase work**
+
+| Operation | What round 2 established |
+| --- | --- |
+| Layer masks | The recorded `Mk ` + `Nw `=`Chnl` + `UsrM`=`RvlS` descriptor works (already exercised by the cutout recipe); a `putReference(null, …)` variant does not. |
+| Adjustment layers | `layer.kind` accepts **only** `TEXT` and `NORMAL`, so Levels/Curves/Hue-Sat/Gradient Map layers must be built with `make` + `adjustmentLayer`. |
+| Fill layers | Same constraint — `make` + `contentLayer` + `solidColorLayer`. |
+| Shape layers | `make` + `contentLayer` + `rectangle`; the extra colour key inside the shape descriptor is what broke round 1. |
+| `selection.stroke` | Every argument shape tried so far is rejected; the ActionManager `stroke` command is the fallback. |
+| `adjustCurves` | Argument shape unresolved; `adjustLevels` covers tone meanwhile. |
+| Auto tone / contrast | `autoColor`/`autoTone`/`autoContrast` commands are **not** invocable, but `ArtLayer.autoLevels()` and `autoContrast()` exist in the DOM and need testing. |
+
+**Genuinely unavailable on this build**
+
+| Feature | Evidence |
+| --- | --- |
+| `selectFocusArea` | *command not currently available*, with and without a descriptor |
+| `cameraRawFilter` | Same, with an empty descriptor and with a `filterFX` descriptor |
+| `neuralFilters` | Same — cloud feature |
+| `generativeFill` | Same — cloud feature; needs its own investigation (account, region, credits) before it can be promised |
+
+## Architecture the phases build toward
+
+Four verbs, plus an escape hatch. An agent needs a small number of composable
+tools, not two hundred thin ones.
+
+| Tool | Verb | Status |
+| --- | --- | --- |
+| `photoshop_status` | *is it there* | shipped |
+| `photoshop_inspect` | *what is on screen* | Phase 1 |
+| `photoshop_apply` | *do these things* | Phase 2 |
+| `photoshop_cutout` | *batch subject extraction* | shipped |
+| `photoshop_batch` | *do those things to many files* | Phase 3 |
+| `photoshop_run_jsx` | *anything else* | shipped |
+| `photoshop_reference` | *teach me the vocabulary* | Phase 2 |
+| a registered **skill** | *how to work well here* | Phase 2 |
+
+Two properties make this composable rather than a menu:
+
+- **One vocabulary, two drivers.** `photoshop_apply` runs a list of operations
+  against open documents; `photoshop_batch` runs the *same* list against a list
+  of files. Operations are declared once.
+- **Discovery instead of prompt bloat.** The full operation vocabulary lives in
+  `photoshop_reference` and in a skill loaded on demand, so the standing prompt
+  stays small and the model can still learn every operation when it needs to.
+
+## Phases
+
+### Phase 0 — the bridge ✅ shipped
+
+Windows COM + ExtendScript bridge; `status`, `cutout`, `run_jsx`; per-output
+alpha verification; one Photoshop session per batch; verified end to end.
+
+### Phase 1 — see what is on screen
+
+`photoshop_inspect`: documents, the full layer tree (name, kind, bounds, opacity,
+blend mode, visibility, mask presence, text contents, smart-object state), the
+current selection, document size/resolution/mode/profile, history position.
+
+Why first: almost every real request is relative to something already open —
+"把背景层换成蓝色", "把这个组里所有图层导出". Without this the agent guesses at
+layer names, and guessing is what makes an agent unreliable.
+
+### Phase 2 — the operation vocabulary
+
+`photoshop_apply`, with operations grouped exactly as the verification matrix
+groups them:
+
+- **document** — new, open, close, save_as, export, resize_image, resize_canvas,
+  crop, rotate, flip, trim, flatten, duplicate, change_mode, convert_profile
+- **transform** — free transform, scale, rotate, flip layer, align, distribute
+- **adjust** — levels, curves, brightness/contrast, hue/saturation, vibrance,
+  black & white, colour balance, photo filter, threshold, posterize, invert,
+  exposure, shadow/highlight, gradient map
+- **filter** — gaussian/motion/radial/smart blur, unsharp mask, sharpen,
+  add noise, dust & scratches, median, high pass, maximum/minimum, custom filter
+- **layer** — create, delete, duplicate, rename, reorder, group, ungroup,
+  opacity, blend mode, visibility, lock, link, rasterize, smart object,
+  mask (add / delete / apply / invert / from selection), clipping mask,
+  layer styles (drop shadow, inner shadow, outer/inner glow, bevel, stroke,
+  colour / gradient / pattern overlay)
+- **text** — create point or paragraph text, edit contents, font, size, colour,
+  justification, tracking/leading, warp
+- **shape & paint** — shape layers, fill, stroke, gradient
+- **select** — subject, sky, colour range, all/none/invert, expand, contract,
+  feather, smooth, border, save/load to channel
+- **history** — group steps into one undo entry via `suspendHistory`
+- **metadata** — read/write XMP, document title, author, copyright
+
+Plus `photoshop_reference` (the vocabulary as data) and the registered skill.
+
+### Phase 3 — batch and production
+
+`photoshop_batch` (the same operation list over many files, one Photoshop session,
+per-file report), `photoshop_play_action` (`.atn` actions, including the shipped
+default sets), `photoshop_export_layers`, contact sheet / PDF presentation /
+photomerge wrappers, and the Image Processor equivalent.
+
+### Phase 4 — AI and cloud, with honest availability reporting
+
+Generative Fill / Expand, Neural Filters, Sky Replacement, Super Resolution.
+These are the ones most likely to be region- or account-gated, so they ship behind
+a capability check that reports *unavailable here* rather than failing obscurely.
+`test/probe-operations.mjs` is where their real status gets recorded.
+
+### Phase 5 — quality and ergonomics
+
+Edge refinement for cutouts (headless, from `feather`/`expand`/`contract`/`smooth`
+plus a mask blur), preview thumbnails written alongside results so the agent can
+show its work, progress reporting for long batches, and a per-operation dry-run
+that reports what a plan would touch before touching it.
+
+### Phase 6 — deferred by the user
+
+Client-side UI (settings page, result gallery) and video frame extraction.
+
+## Standing constraints
+
+- **Windows only**, COM + ExtendScript. This is a property of Photoshop's
+  automation surface, not a shortcut.
+- **Zero runtime dependencies.** Nothing outside Node's standard library, so the
+  plugin cannot fail to load because of how a package manager hoisted something.
+- **Never write to an input file.** Every document opens read-only in effect and
+  closes without saving; output goes only where the caller asked.
+- **Only close what we opened.** Documents the user has open are reported, never
+  touched.
+- **Restore `app.displayDialogs`.** Suppressed for the duration of a script — a
+  modal would block the bridge forever — and restored in `finally`.
+- **Verify, do not assume.** Every phase adds its operations to the execution
+  matrix, and a feature is only documented as available once it appears there as
+  `ok`.
