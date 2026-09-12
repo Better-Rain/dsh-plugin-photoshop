@@ -28,6 +28,7 @@ const INPUT_DIR = join(SANDBOX, 'in')
 const OUTPUT_DIR = join(SANDBOX, 'out')
 const BATCH_OUT = join(SANDBOX, 'batch-out')
 const LAYERS_OUT = join(SANDBOX, 'layers-out')
+const NESTED_OUT = join(SANDBOX, 'nested', 'deeper', 'made-on-demand')
 const FIXTURE_PATH = join(SANDBOX, 'fixture.psd').replace(/\\/g, '/')
 
 /**
@@ -123,6 +124,7 @@ function prepareInputs() {
   rmSync(OUTPUT_DIR, { recursive: true, force: true })
   rmSync(BATCH_OUT, { recursive: true, force: true })
   rmSync(LAYERS_OUT, { recursive: true, force: true })
+  rmSync(join(SANDBOX, 'nested'), { recursive: true, force: true })
   mkdirSync(join(INPUT_DIR, 'nested'), { recursive: true })
   mkdirSync(OUTPUT_DIR, { recursive: true })
   const explicit = process.argv[2]
@@ -508,6 +510,24 @@ for (var i = app.documents.length - 1; i >= 0; i--) {
   if (historyBefore !== undefined && historyAfter !== undefined && historyBefore !== historyAfter) {
     failures.push(`the dry run changed the document: history went from ${historyBefore} to ${historyAfter}`)
   }
+
+  heading('photoshop_apply — save_as into a directory that does not exist yet')
+  // Photoshop reports a missing directory as "the Save command's parameters are
+  // currently invalid", which says nothing useful, so the plugin creates it first.
+  const savePlan = await callTool('photoshop_apply', {
+    ops: [
+      { op: 'new_document', width: 40, height: 40, name: 'dsh-save-check' },
+      { op: 'add_layer', name: 'Ink' },
+      { op: 'fill', target: 'Ink', color: '#3366cc' },
+      { op: 'save_as', path: `${NESTED_OUT.replace(/\\/g, '/')}/out.png`, format: 'png', overwrite: true },
+      { op: 'close', discard: true },
+    ],
+    timeout_ms: 300000,
+  })
+  line(savePlan)
+  line(`file written: ${existsSync(join(NESTED_OUT, 'out.png'))}`)
+  if (!/^Applied 5 operations/.test(savePlan)) planFailures.push('save_as into a directory that does not exist')
+  if (!existsSync(join(NESTED_OUT, 'out.png'))) failures.push('save_as did not create the missing directory and write the file')
 
   heading('photoshop_apply — a plan that must fail, and say why')
   const badLayer = await callTool('photoshop_apply', {

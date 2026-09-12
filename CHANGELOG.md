@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.6.1
+
+Three defects found by running the plugin for real against real material, rather
+than by testing its internals:
+
+- **The skill failed to load.** `source` was an object, and the registry validates
+  it as a plain string — the mismatch surfaced as `loaded skill "photoshop" source
+  must be a string`, so the skill silently never appeared. It is a string now.
+- **`save_as` into a directory that does not exist failed.** Only operations
+  declaring `output_dir` had their directory created; `save_as` names a file, so
+  its parent was left missing, and Photoshop reports that as *"the Save command's
+  parameters are currently invalid"*, which says nothing about a directory. Plans
+  now pre-create both shapes, and `test/e2e.mjs` carries a regression test.
+- **A dry run misjudged any plan that opens its own document.** Every operation
+  after `open` was reported as failing because nothing was open *yet*. Those steps
+  now report as `skip` with the reason, and the summary says that only running the
+  plan can check them.
+
+Validated against the user's own material, 80 frames across two scenes: every
+cutout came out **pixel-identical** to the reference output that already sat
+alongside those frames — 37.5 million pixels compared, zero differing — and both
+`select-subject` and `remove-background` agree on this illustration style. Outputs
+were written to a separate working directory, never into the material tree.
+
 ## 1.6.0
 
 - **Dry runs.** `photoshop_apply` accepts `dry_run: true`, which resolves every
