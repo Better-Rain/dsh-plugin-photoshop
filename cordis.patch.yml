@@ -1,0 +1,5 @@
+# dsh-plugin-photoshop bundle layer: register the agent-facing Photoshop tool row.
+# Install with: dsh plugin --profile web add dsh-plugin-photoshop
+- insert:
+    - id: tool-photoshop
+      name: dsh-plugin-photoshop

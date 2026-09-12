@@ -1,0 +1,39 @@
+{
+  "name": "dsh-plugin-photoshop",
+  "version": "1.0.0",
+  "description": "DeepSeek Harness plugin: drive your local Adobe Photoshop from the agent — batch subject cutouts (Select Subject / Remove Background) to transparent PNGs, plus a raw ExtendScript escape hatch. · 让 AI 直接驱动本机 Photoshop 批量抠图。",
+  "type": "module",
+  "main": "lib/index.js",
+  "files": [
+    "lib/",
+    "cordis.patch.yml",
+    "README.md",
+    "README_EN.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "photoshop",
+    "cutout",
+    "remove-background",
+    "select-subject",
+    "extendscript",
+    "image",
+    "batch"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "test": "node test/e2e.mjs"
+  }
+}
