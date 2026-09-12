@@ -22,6 +22,64 @@ const WORKSPACE = join(import.meta.dirname, '..')
 const SANDBOX = join(WORKSPACE, '_research', 'e2e')
 const INPUT_DIR = join(SANDBOX, 'in')
 const OUTPUT_DIR = join(SANDBOX, 'out')
+const FIXTURE_PATH = join(SANDBOX, 'fixture.psd').replace(/\\/g, '/')
+
+/**
+ * Build a document that exercises every layer fact the inspection reports: a
+ * pixel layer carrying a layer mask, a text layer moved inside a named group,
+ * and the untouched background. Saved as a PSD and closed, so the test can
+ * reopen it and inspect genuine on-disk state rather than something the
+ * inspection itself produced.
+ *
+ * Each step is reported rather than thrown, so a fixture that only partly
+ * builds still yields a diagnosis instead of a crash.
+ * @returns ExtendScript source.
+ */
+function fixtureScript() {
+  return `var target = new File(${JSON.stringify(FIXTURE_PATH)});
+if (target.exists) target.remove();
+var notes = [];
+var doc = app.documents.add(200, 120, 72, 'dsh-inspect-fixture', NewDocumentMode.RGB, DocumentFill.WHITE);
+
+var shape = doc.artLayers.add();
+shape.name = 'Shape';
+var colour = new SolidColor();
+colour.rgb.red = 200; colour.rgb.green = 60; colour.rgb.blue = 60;
+doc.selection.select([[10, 10], [100, 10], [100, 90], [10, 90]]);
+doc.selection.fill(colour);
+doc.selection.deselect();
+// Not the background layer, so opacity is settable — exercises the reporting path.
+shape.opacity = 80;
+
+// Reveal All (UsrM/RvlA) adds a mask with no selection present; Reveal
+// Selection (UsrM/RvlS) is the variant that requires one.
+var maskDesc = new ActionDescriptor();
+maskDesc.putClass(charIDToTypeID('Nw  '), charIDToTypeID('Chnl'));
+var atRef = new ActionReference();
+atRef.putEnumerated(charIDToTypeID('Chnl'), charIDToTypeID('Chnl'), charIDToTypeID('Msk '));
+maskDesc.putReference(charIDToTypeID('At  '), atRef);
+maskDesc.putEnumerated(charIDToTypeID('Usng'), charIDToTypeID('UsrM'), charIDToTypeID('RvlA'));
+try { executeAction(charIDToTypeID('Mk  '), maskDesc, DialogModes.NO); notes.push('mask=ok'); }
+catch (maskError) { notes.push('mask=FAILED(' + maskError.message + ')'); }
+
+var title = doc.artLayers.add();
+title.kind = LayerKind.TEXT;
+title.name = 'Title';
+title.textItem.contents = 'Hello Inspect';
+title.textItem.size = UnitValue(18, 'px');
+
+var group = doc.layerSets.add();
+group.name = 'Header';
+try { title.move(group, ElementPlacement.INSIDE); notes.push('group=ok'); }
+catch (groupError) { notes.push('group=FAILED(' + groupError.message + ')'); }
+
+try {
+  doc.saveAs(target, new PhotoshopSaveOptions(), true, Extension.LOWERCASE);
+  notes.push('saved=ok');
+} catch (saveError) { notes.push('saved=FAILED(' + saveError.message + ')'); }
+try { doc.close(SaveOptions.DONOTSAVECHANGES); } catch (closeError) { notes.push('close=' + closeError.message); }
+'fixture: ' + notes.join(' | ')`
+}
 
 /** Registry stand-in: the tool runtime calls exactly this and nothing else. */
 const registered = new Map()
@@ -54,6 +112,9 @@ async function callTool(toolName, args) {
 }
 
 function prepareInputs() {
+  // The run must be repeatable: a previous run's outputs would otherwise be
+  // skipped as "already exists" and read as a failure.
+  rmSync(OUTPUT_DIR, { recursive: true, force: true })
   mkdirSync(join(INPUT_DIR, 'nested'), { recursive: true })
   mkdirSync(OUTPUT_DIR, { recursive: true })
   const explicit = process.argv[2]
@@ -117,6 +178,25 @@ async function main() {
   })
   line(secondReport)
 
+  heading('photoshop_inspect — fixture with a group, a text layer and a mask')
+  line(await callTool('photoshop_run_jsx', { script: fixtureScript(), timeout_ms: 300000 }))
+  // Build the document, then reopen it so the inspection has something real to read.
+  const opened = await callTool('photoshop_run_jsx', {
+    script: `app.open(new File(${JSON.stringify(FIXTURE_PATH)})); app.activeDocument.name`,
+    timeout_ms: 300000,
+  })
+  line(`opened for inspection: ${opened.split('\n')[0]}`)
+  const inspection = await callTool('photoshop_inspect', {})
+  line(inspection)
+  line(await callTool('photoshop_run_jsx', {
+    script: `var closed = 0;
+for (var i = app.documents.length - 1; i >= 0; i--) {
+  if (String(app.documents[i].name) === 'fixture.psd') { app.documents[i].close(SaveOptions.DONOTSAVECHANGES); closed++; }
+}
+'closed ' + closed + ', ' + app.documents.length + ' left open'`,
+    timeout_ms: 300000,
+  }))
+
   heading('photoshop_run_jsx — the escape hatch')
   line(await callTool('photoshop_run_jsx', {
     script: "app.name + ' v' + app.version + ' | docs open: ' + app.documents.length",
@@ -131,6 +211,23 @@ async function main() {
   if (!/\[ok\]/.test(secondReport)) failures.push('remove-background mode produced no successful cutout')
   if (/NO ALPHA/.test(secondReport)) failures.push('remove-background mode produced an opaque output')
   if (/feather warning|trim warning/.test(secondReport)) failures.push('feather_px or trim was rejected by this Photoshop')
+
+  const inspectionChecks = [
+    ['the document is identified', /Document "fixture\.psd"/],
+    ['its dimensions are reported', /200x120/],
+    ['its colour mode is reported', /RGB/],
+    ['the pixel layer appears', /"Shape"/],
+    ['its layer mask is detected', /mask/],
+    ['the group appears', /"Header"/],
+    ['the text layer appears', /"Title"/],
+    ['its text content is read', /text "Hello Inspect"/],
+    ['its text size is read', /18px/],
+    ['the nested name path is built', /Header\/Title/],
+    ['an index path is offered', /\b0(\.\d+)?\s/],
+  ]
+  for (const [label, pattern] of inspectionChecks) {
+    if (!pattern.test(inspection)) failures.push(`inspect did not report that ${label}`)
+  }
 
   heading('verdict')
   if (failures.length === 0) {

@@ -47,11 +47,26 @@ Remove it with:
 dsh plugin --profile web remove dsh-plugin-photoshop
 ```
 
-## The three tools
+## The four tools
 
 ### `photoshop_status`
 
 Environment self-check, read-only — it opens nothing and modifies nothing. Reports the Photoshop version and build, whether it is already running, which documents are open, whether Select Subject and Remove Background exist in this version. **Run it first when a Photoshop call fails for a non-obvious reason.**
+
+### `photoshop_inspect`
+
+Read what is actually on screen. Read-only.
+
+Every open document, then for one of them: size, resolution, colour mode, bit depth, colour profile, disk path, unsaved state, active layer, selection bounds, history position, and channel / path / guide counts.
+
+Then the **complete layer tree**, where each layer carries its index path, name path, kind, visibility, opacity, fill opacity, blend mode, clipping, mask presence, vector mask, layer effects, background flag, bounds — and for text layers their content, size, font and justification.
+
+Layers are identified **twice**, so later operations can address them either way:
+
+- **index path** `0.1` — the second layer inside the first group
+- **name path** `Header/Title` — what the user actually says out loud
+
+**Why this came first:** almost every real request is relative to something already open — "make the background layer blue", "export every layer in that group". Without this the agent guesses at layer names, and guessing is what makes an agent unreliable.
 
 ### `photoshop_cutout` — the workhorse
 
@@ -125,10 +140,14 @@ The cutout recipe itself was established empirically: Select Subject is the `aut
 ```bash
 git clone https://github.com/<you>/dsh-plugin-photoshop.git
 cd dsh-plugin-photoshop
-node test/e2e.mjs          # runs a real batch cutout through your Photoshop
+node test/e2e.mjs                 # runs the full verification against your Photoshop
+node test/probe-capabilities.mjs  # reflects the real API surface of this installation
+node test/probe-operations.mjs    # attempts every operation for real, producing a matrix
 ```
 
-`test/e2e.mjs` builds the tool definitions, registers them on a stand-in registry, and then calls their `execute` exactly as the tool runtime would — covering the whole path except Cordis itself, and verifying each output's alpha through its PNG header. Inputs come from `~/Pictures/1.jpg` (pass your own image as an argument); artifacts land in `_research/e2e/` for inspection.
+`test/e2e.mjs` builds the tool definitions, registers them on a stand-in registry, and then calls their `execute` exactly as the tool runtime would — covering the whole path except Cordis itself. It verifies each cutout output's alpha through its PNG header, and verifies every fact `photoshop_inspect` reports against a fixture document carrying a group, a nested text layer and a masked pixel layer. Inputs come from `~/Pictures/1.jpg` (pass your own image as an argument); artifacts land in `_research/e2e/` for inspection. The run clears its output directory first, so it is repeatable.
+
+The two probes are what the capability inventory rests on: reflection gives the API surface this installation actually has, and the execution matrix establishes what really runs. A feature is documented as available only once it shows up there as `ok`.
 
 To develop against a live profile instead:
 

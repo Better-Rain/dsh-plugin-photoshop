@@ -50,6 +50,7 @@ refinement is a modal workspace, so headless refinement has to be assembled from
 | AI selection | `autoCutout` (Select Subject), `removeBackground`, `selectSky` |
 | Selection | `colorRange`, `selectBorder`, channel store/load, `makeWorkPath`, `invert`, `feather`, `clear` |
 | Content-aware | Content-Aware Fill via `fill` + `contentAware` mode |
+| Layer masks | `make` + `Nw `=`Chnl` + `UsrM`=`RvlA` (reveal all, no selection needed) or `UsrM`=`RvlS` (reveal selection, which *requires* an active selection) |
 | Document | `crop`, `resizeCanvas`, `resizeImage`, `changeMode`, `convertProfile`, `trim` (transparent), `flatten`, `mergeVisibleLayers`, `duplicate`, `suspendHistory`, XMP read/write |
 | Layers | `groupLayersEvent`, `ungroupLayersEvent`, clipping mask, convert to smart object, rasterize, duplicate, translate, rotate, resize, remove, blend mode, opacity |
 | Layer styles | drop shadow, stroke (on an unlocked layer) |
@@ -64,7 +65,6 @@ refinement is a modal workspace, so headless refinement has to be assembled from
 
 | Operation | What round 2 established |
 | --- | --- |
-| Layer masks | The recorded `Mk ` + `Nw `=`Chnl` + `UsrM`=`RvlS` descriptor works (already exercised by the cutout recipe); a `putReference(null, …)` variant does not. |
 | Adjustment layers | `layer.kind` accepts **only** `TEXT` and `NORMAL`, so Levels/Curves/Hue-Sat/Gradient Map layers must be built with `make` + `adjustmentLayer`. |
 | Fill layers | Same constraint — `make` + `contentLayer` + `solidColorLayer`. |
 | Shape layers | `make` + `contentLayer` + `rectangle`; the extra colour key inside the shape descriptor is what broke round 1. |
@@ -89,7 +89,7 @@ tools, not two hundred thin ones.
 | Tool | Verb | Status |
 | --- | --- | --- |
 | `photoshop_status` | *is it there* | shipped |
-| `photoshop_inspect` | *what is on screen* | Phase 1 |
+| `photoshop_inspect` | *what is on screen* | **shipped** |
 | `photoshop_apply` | *do these things* | Phase 2 |
 | `photoshop_cutout` | *batch subject extraction* | shipped |
 | `photoshop_batch` | *do those things to many files* | Phase 3 |
@@ -113,15 +113,26 @@ Two properties make this composable rather than a menu:
 Windows COM + ExtendScript bridge; `status`, `cutout`, `run_jsx`; per-output
 alpha verification; one Photoshop session per batch; verified end to end.
 
-### Phase 1 — see what is on screen
+### Phase 1 — see what is on screen ✅ shipped
 
-`photoshop_inspect`: documents, the full layer tree (name, kind, bounds, opacity,
-blend mode, visibility, mask presence, text contents, smart-object state), the
-current selection, document size/resolution/mode/profile, history position.
+`photoshop_inspect`: every open document, then for one of them its size,
+resolution, colour mode, bit depth, profile, path, unsaved state, active layer,
+selection bounds, history position and channel/path/guide counts — followed by the
+complete layer tree, where each layer carries its index path, name path, kind,
+visibility, opacity, fill opacity, blend mode, clipping, mask presence, vector
+mask, layer effects, centre flags, bounds, and for text layers their content, size,
+font and justification.
 
-Why first: almost every real request is relative to something already open —
-"把背景层换成蓝色", "把这个组里所有图层导出". Without this the agent guesses at
-layer names, and guessing is what makes an agent unreliable.
+Mask and layer-effects presence have no DOM property to read, so they come from an
+`executeActionGet` lookup keyed by layer id — a reference built from an id never
+changes the active layer, which is what keeps the inspection genuinely read-only.
+
+Verified by `test/e2e.mjs` against a fixture PSD carrying a group, a nested text
+layer and a masked pixel layer: every one of those facts is asserted in the report.
+
+Why this came first: almost every real request is relative to something already
+open — "把背景层换成蓝色", "export every layer in that group". Without this the
+agent guesses at layer names, and guessing is what makes an agent unreliable.
 
 ### Phase 2 — the operation vocabulary
 

@@ -47,13 +47,28 @@ dsh plugin --profile web add git+https://github.com/<你的用户名>/dsh-plugin
 dsh plugin --profile web remove dsh-plugin-photoshop
 ```
 
-## 三个工具
+## 四个工具
 
 ### `photoshop_status`
 
 环境自检。只读，不打开也不修改任何文件。
 
 报告 Photoshop 版本与 build、是否已经在运行、当前打开了哪些文档、这个版本有没有「选择主体」和「移除背景」命令。**当 Photoshop 相关操作莫名失败时，先跑它。**
+
+### `photoshop_inspect`
+
+读取当前屏幕上的真实状态。只读。
+
+报告每个打开的文档，以及其中一个的：尺寸、分辨率、色彩模式、位深、色彩配置文件、磁盘路径、是否有未保存修改、当前活动图层、选区范围、历史记录位置、通道/路径/参考线数量。
+
+然后是**完整的图层树**，每个图层都会带上：索引路径、名称路径、类型、可见性、不透明度、填充不透明度、混合模式、是否剪贴蒙版、是否有蒙版、是否有矢量蒙版、是否有图层样式、是否背景层、边界范围；文字图层还会读出内容、字号、字体和对齐方式。
+
+图层用**两种方式**标识，方便后续操作引用：
+
+- **索引路径** `0.1` —— 第一个组里的第二个图层
+- **名称路径** `Header/Title` —— 就是你平时嘴上说的那个名字
+
+**为什么先做这个**：现实中几乎每个需求都是相对于已经打开的东西说的——"把背景层换成蓝色"、"把这个组里所有图层导出"。没有这一步，AI 只能猜图层名，而猜就是它不可靠的根源。
 
 ### `photoshop_cutout` —— 主力工具
 
@@ -144,10 +159,14 @@ Photoshop 的 AI 在这张图里没找到主体。换 `mode: "remove-background"
 ```bash
 git clone https://github.com/<你的用户名>/dsh-plugin-photoshop.git
 cd dsh-plugin-photoshop
-node test/e2e.mjs          # 会对真实 Photoshop 跑一次完整批量抠图
+node test/e2e.mjs                 # 会对真实 Photoshop 跑一次完整验证
+node test/probe-capabilities.mjs  # 反射枚举本机 PS 的真实 API 表面
+node test/probe-operations.mjs    # 逐项真实执行，产出能力矩阵
 ```
 
-`test/e2e.mjs` 会构建工具定义、注册到替身注册表、然后像工具运行时那样调用它们的 `execute`——覆盖除 Cordis 本体以外的全链路，并用 PNG 头验证每张输出的 alpha 通道。测试输入取自 `~/Pictures/1.jpg`（也可以传一张自己的图作为参数），产物落在 `_research/e2e/` 供肉眼检查。
+`test/e2e.mjs` 会构建工具定义、注册到替身注册表、然后像工具运行时那样调用它们的 `execute`——覆盖除 Cordis 本体以外的全链路，并用 PNG 头验证每张输出的 alpha 通道，以及用一个真实夹具文档（含图层组、嵌套文字图层、带蒙版的像素图层）验证 `photoshop_inspect` 报告的每一项事实。测试输入取自 `~/Pictures/1.jpg`（也可以传一张自己的图作为参数），产物落在 `_research/e2e/` 供肉眼检查；每次运行都会先清空输出目录，因此可以反复运行。
+
+两个探针是**能力清单的依据**：反射给出本机真实存在的 API 表面，执行矩阵逐项验证"到底能不能跑"。新增能力时先让它在矩阵里变成 `ok`，再写进文档。
 
 也可以直接把本目录装进 profile 做开发：
 
