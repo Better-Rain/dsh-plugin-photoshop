@@ -484,6 +484,31 @@ for (var i = app.documents.length - 1; i >= 0; i--) {
   if (exported.length < 3) failures.push(`export_layers wrote only ${exported.length} file(s) for a document with more layers than that`)
   if (!/action sets/.test(exportReport)) failures.push('list_actions did not report the action sets')
 
+  heading('photoshop_apply — dry run, before touching anything')
+  const beforeDry = await callTool('photoshop_inspect', {})
+  const historyBefore = /history\s+(\d+) states/.exec(beforeDry)?.[1]
+  const dryRun = await callTool('photoshop_apply', {
+    ops: [
+      { op: 'select_all' },
+      { op: 'gaussian_blur', target: 'Canvas', radius: 2 },
+      { op: 'gaussian_blur', target: 'NoSuchLayer', radius: 2 },
+    ],
+    dry_run: true,
+    timeout_ms: 300000,
+  })
+  line(dryRun)
+  const afterDry = await callTool('photoshop_inspect', {})
+  const historyAfter = /history\s+(\d+) states/.exec(afterDry)?.[1]
+  line(`history states before/after the dry run: ${historyBefore} / ${historyAfter}`)
+  if (!/nothing applied/.test(dryRun)) failures.push('the dry run did not say that nothing was applied')
+  if (!/FAIL/.test(dryRun)) failures.push('the dry run did not flag the operation naming a missing layer')
+  if (!/target "NoSuchLayer"/.test(dryRun)) failures.push('the dry run did not name the reference it could not resolve')
+  if (!/no layer named "NoSuchLayer"/.test(dryRun)) failures.push('the dry run did not explain why the reference failed')
+  if (!/"Canvas"/.test(dryRun)) failures.push('the dry run did not report the layer it resolved')
+  if (historyBefore !== undefined && historyAfter !== undefined && historyBefore !== historyAfter) {
+    failures.push(`the dry run changed the document: history went from ${historyBefore} to ${historyAfter}`)
+  }
+
   heading('photoshop_apply — a plan that must fail, and say why')
   const badLayer = await callTool('photoshop_apply', {
     ops: [{ op: 'gaussian_blur', target: 'NoSuchLayer', radius: 2 }],

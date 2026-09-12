@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.6.0
+
+- **Dry runs.** `photoshop_apply` accepts `dry_run: true`, which resolves every
+  operation against the live state — each `document`, `target` and `into` — and
+  reports what it would touch without touching it. It catches the failure that
+  actually happens in practice: a layer name that was guessed rather than read
+  from `photoshop_inspect`. Verified with the strongest evidence available: the
+  document's history state count is identical before and after.
+- **`photoshop_status` now reports what this installation cannot do**, so the
+  agent knows before it promises the user something. The list is a finding from
+  running the commands, not a constant, and says so, naming
+  `test/probe-operations.mjs` as how to re-establish it after an upgrade.
+- **Contact sheets were investigated and rejected.** `app.makeContactSheet` opens
+  the Contact Sheet II dialog whatever options object it is given, and it blocks
+  every later call until a human dismisses it. The same is true of playing a
+  recorded action, and `app.featureEnabled` turned out to answer `false` for every
+  candidate feature name in 0 ms, so it carries no usable signal here. All three
+  are recorded in `docs/ROADMAP.md` with their evidence.
+
+The pattern behind all three, worth stating plainly: **a timed-out call does not
+stop Photoshop.** The client is killed, the script keeps running, and every later
+call is refused until a human clears whatever dialog is up.
+
 ## 1.5.0
 
 - **Edge quality can be measured now.** `lib/png.js` decodes a PNG far enough to

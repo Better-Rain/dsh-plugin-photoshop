@@ -155,6 +155,11 @@ Two properties make it dependable:
 - **The plan is validated before Photoshop is involved.** A misspelled operation
   costs a sentence, not a round trip: `Unknown operation "gausian_blur". Did you
   mean gaussian_blur, …`.
+- **Plans can be dry-run.** With `dry_run: true` it resolves every layer reference
+  and reports what it would touch, changing not one pixel — the test proves that
+  by showing the document's history state count is identical before and after.
+  When a plan mentions layer names, this is the one call that turns a guess into a
+  fact.
 
 Failure reporting is designed to be actionable: which operation failed, by name
 and position, why, what had already been applied, and whether one undo reverts

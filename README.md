@@ -148,6 +148,7 @@ dsh plugin --profile web remove dsh-plugin-photoshop
 
 - **整组计划是一个 undo 步。** 在已有文档打开时，整串操作用 `suspendHistory` 包起来，用户按一次 Ctrl+Z 就撤销 AI 做的所有事。计划本身要和历史打交道时（`step_backward`）可以关掉这个包装。
 - **执行前先在本地校验计划。** 拼错的操作名不会白跑一趟 Photoshop，而是当场返回 `Unknown operation "gausian_blur". Did you mean gaussian_blur, …`。
+- **可以干跑（dry-run）。** 加 `dry_run: true` 时，它会解析计划里每一个图层引用并告诉你"会碰到什么"，但**一个像素都不改**——测试里用"history 状态数前后完全相同"来证明这一点。当计划里写了图层名时，这是把猜测变成事实的一次调用。
 
 失败的汇报也是有用的：它告诉你**第几个操作**、**操作名**、**错误原因**、**已经成功应用了哪些**，以及撤销一次能不能全退回去。
 

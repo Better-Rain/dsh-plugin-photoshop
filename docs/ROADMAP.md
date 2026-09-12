@@ -244,12 +244,18 @@ Two robustness changes came out of it:
   click and the plugin's channel is blocked by the very thing it would use to
   clear it.
 
-### Phase 4 — AI and cloud, with honest availability reporting
+### Phase 4 — AI and cloud: answered, not shipped
 
-Generative Fill / Expand, Neural Filters, Sky Replacement, Super Resolution.
-These are the ones most likely to be region- or account-gated, so they ship behind
-a capability check that reports *unavailable here* rather than failing obscurely.
-`test/probe-operations.mjs` is where their real status gets recorded.
+The AI and cloud features were investigated and the answer for this installation
+is no: `generativeFill`, `neuralFilters`, `cameraRawFilter` and `selectFocusArea`
+all resolve as command names and then refuse to run, and `app.featureEnabled`
+reports nothing useful. Rather than ship a tool that fails obscurely, the plugin
+**reports the finding**: `photoshop_status` now lists what has been established as
+unavailable, with the note that it is a finding from this installation and that
+`test/probe-operations.mjs` is how to re-establish it after a Photoshop upgrade.
+
+That is the honest version of "covering the AI capabilities": the agent knows
+before it promises the user something whether this machine can do it.
 
 ### Phase 5 — quality and ergonomics — partly shipped
 
@@ -297,9 +303,41 @@ execution:
   re-tighten with Levels" trick for mask refinement is not available headlessly;
   `applyGaussianBlur` on the mask is the controllable knob that remains.
 
-**Remaining:** thumbnail previews written alongside results, progress reporting
-for long batches, and a per-operation dry-run that reports what a plan would touch
-before touching it.
+**Remaining:** thumbnail previews written alongside results, and progress reporting
+for long batches.
+
+#### Dry runs
+
+`photoshop_apply` accepts `dry_run: true`, which resolves every operation against
+the live state — each `document`, `target` and `into` — and reports what it would
+touch without touching it. It catches the failure that actually happens in
+practice, a layer name that was guessed rather than read from
+`photoshop_inspect`. It resolves references rather than validating every field,
+because field validation lives in the handlers and running them is the thing a
+dry run exists to avoid.
+
+Verified by the test with the strongest available evidence: a plan of three
+operations, one of which names a missing layer, reports the two that resolve and
+the one that does not, and the document's history state count is **identical
+before and after**.
+
+#### What this Photoshop will not do, and how that was established
+
+Three separate investigations ended in a rejection rather than a feature, each
+because a modal dialog blocks the only channel that could dismiss it:
+
+| Rejected | Evidence |
+| --- | --- |
+| `play_action` | A shipped action raised a playback-error alert and another opened the Channel Mixer. `DialogModes.NO` does not suppress them — they are governed by the Actions panel's playback options. |
+| `makeContactSheet` | `app.makeContactSheet` opens the **Contact Sheet II** dialog whatever options object it is given; its window class is `CScriptPs_WindowClass`, not a standard dialog class, so even a window-level sweep has to know to look for it. |
+| `app.featureEnabled` | Answers `false` for all 26 candidate feature names, in 0 ms, and never throws — it carries no usable signal here, so availability is reported from executed evidence instead. |
+
+The common thread is worth stating plainly: **a timed-out call does not stop
+Photoshop.** The client is killed, the script keeps running, and every later call
+is refused with `RPC_E_SERVERCALL_RETRYLATER` until a human clears whatever
+dialog is up. The bridge's two-minute retry and its `PHOTOSHOP_BUSY` message exist
+because of that, and the vocabulary simply does not offer the operations that
+provoke it.
 
 ### Phase 6 — deferred by the user
 
