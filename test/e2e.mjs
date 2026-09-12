@@ -18,6 +18,7 @@ import { join } from 'node:path'
 
 import { apply } from '../lib/index.js'
 import { applyScript } from '../lib/ops-jsx.js'
+import { describeEdge, readPngStats } from '../lib/png.js'
 import { createSession, readJsonFile } from '../lib/ps.js'
 import { OPERATION_NAMES } from '../lib/vocabulary.js'
 
@@ -220,6 +221,32 @@ closed.length === 0 ? 'nothing left over' : 'closed: ' + closed.join(', ')`,
   })
   line(secondReport)
 
+  heading('photoshop_cutout — edge refinement, measured')
+  const refined = await callTool('photoshop_cutout', {
+    paths: [join(INPUT_DIR, 'sample-a.jpg')],
+    output_dir: OUTPUT_DIR,
+    mode: 'select-subject',
+    suffix: '-refined',
+    feather_px: 2,
+    contract_px: 1,
+    mask_blur_px: 1,
+    timeout_ms: 300000,
+  })
+  line(refined)
+  const plainStats = readPngStats(join(OUTPUT_DIR, 'sample-a.png'))
+  const refinedStats = readPngStats(join(OUTPUT_DIR, 'sample-a-refined.png'))
+  line(`  plain cutout edge:   ${describeEdge(plainStats)}`)
+  line(`  refined cutout edge: ${describeEdge(refinedStats)}`)
+  if (plainStats === undefined || refinedStats === undefined) {
+    failures.push('edge statistics could not be read from the cutout outputs')
+  } else if (refinedStats.partial <= plainStats.partial) {
+    failures.push(
+      `refinement did not soften the edge: ${refinedStats.partial} partial pixel(s) against ${plainStats.partial} unrefined`,
+    )
+  } else {
+    line(`  refinement added ${refinedStats.partial - plainStats.partial} partial pixel(s) to the outline`)
+  }
+
   heading('photoshop_inspect — fixture with a group, a text layer and a mask')
   line(await callTool('photoshop_run_jsx', { script: fixtureScript(), timeout_ms: 300000 }))
   // Build the document, then reopen it so the inspection has something real to read.
@@ -284,6 +311,7 @@ for (var i = app.documents.length - 1; i >= 0; i--) {
     { op: 'set_fill_opacity', target: 'Banner', value: 90 },
     { op: 'set_blend_mode', target: 'Banner', mode: 'multiply' },
     { op: 'add_mask', target: 'Banner', mode: 'reveal_all' },
+    { op: 'refine_mask', target: 'Banner', blur_px: 2 },
     { op: 'invert_mask', target: 'Banner' },
     { op: 'invert_mask', target: 'Banner' },
     { op: 'layer_style', target: 'Banner', style: 'drop_shadow', distance: 5, size: 7, opacity: 50 },

@@ -141,11 +141,11 @@ executed inside one Photoshop session, wrapped in a single undo step when a
 document is already open. Plus `photoshop_reference`, which returns the
 vocabulary on demand so the standing prompt stays small.
 
-91 operations across nine groups:
+93 operations across nine groups:
 | Group | Count | Covers |
 | --- | --- | --- |
 | `document` | 16 | open, new, close, save_as, resize, canvas, crop, rotate, flip, trim, flatten, merge, duplicate, mode, profile, export_layers |
-| `layer` | 21 | create, delete, duplicate, rename, move, group, ungroup, opacity, fill opacity, blend mode, visibility, lock, unlock background, rasterize, smart object, merge down, masks (add / delete / apply / invert), clipping mask, layer styles |
+| `layer` | 23 | create, delete, duplicate, rename, move, group, ungroup, opacity, fill opacity, blend mode, visibility, lock, unlock background, rasterize, smart object, merge down, masks (add / delete / apply / invert / refine), clipping mask, layer styles |
 | `adjust` | 12 | levels, brightness/contrast, hue/saturation, vibrance, black & white, desaturate, invert, threshold, posterize, equalize, auto levels, auto contrast |
 | `filter` | 20 | gaussian / motion / radial / smart blur, unsharp mask, sharpen ×3, add noise, dust & scratches, median, despeckle, high pass, maximum, minimum, offset, custom filter, pinch, spherize, twirl |
 | `select` | 14 | all, none, invert, clear, subject, sky, remove background, expand, contract, feather, smooth, border, save/load channel |
@@ -251,12 +251,55 @@ These are the ones most likely to be region- or account-gated, so they ship behi
 a capability check that reports *unavailable here* rather than failing obscurely.
 `test/probe-operations.mjs` is where their real status gets recorded.
 
-### Phase 5 — quality and ergonomics
+### Phase 5 — quality and ergonomics — partly shipped
 
-Edge refinement for cutouts (headless, from `feather`/`expand`/`contract`/`smooth`
-plus a mask blur), preview thumbnails written alongside results so the agent can
-show its work, progress reporting for long batches, and a per-operation dry-run
-that reports what a plan would touch before touching it.
+**Shipped: edge quality that can be measured, and edge refinement that measurably
+improves it.**
+
+`lib/png.js` now decodes a PNG far enough to count its alpha structure: how many
+pixels are fully transparent, fully opaque, and *partly* transparent. The partial
+count is the width of the soft band along the outline, so "the edges look better"
+stopped being an opinion. It inflates the image data with Node's own zlib and
+undoes the per-scanline filters — still zero dependencies.
+
+With that measurement in place, the cutout gained a refinement stage:
+
+- The `select-subject` path now builds a **layer mask** instead of inverting and
+  clearing the selection. A mask keeps the selection's own anti-aliasing and can
+  be refined afterwards; a cleared selection cannot.
+- `contract_px` shrinks the selection before the cutout, dropping the rim of
+  background the subject was sitting on. This is the stand-in for Photoshop's
+  Matting menu, which is not scriptable on this build.
+- `feather_px` softens the outline.
+- `mask_blur_px` blurs the mask itself afterwards, through the new `refine_mask`
+  operation.
+
+Measured on the same input, with `feather_px: 2, contract_px: 1, mask_blur_px: 1`:
+
+| Cutout | Partial-alpha pixels | Soft band |
+| --- | --- | --- |
+| plain | 1,271 | 0.75% |
+| refined | **12,637** | **7.36%** |
+
+A tenfold wider transition band, verified by the test rather than asserted, and
+confirmed by eye to be a genuine edge rather than a blur.
+
+**What this Photoshop will not let a script do here**, all established by
+execution:
+
+- `defringe`, `removeWhiteMatte`, `removeBlackMatte` and `colorDecontaminate` —
+  the whole Layer > Matting menu plus Select and Mask's colour decontamination —
+  are **not available** to a script on this build. Contracting the selection is
+  the honest substitute, and the vocabulary says so instead of promising a
+  halo-free edge.
+- Blurring a mask works, but only while the mask is the *active channel*.
+- `adjustLevels` on a selected mask channel fails, so the usual "blur then
+  re-tighten with Levels" trick for mask refinement is not available headlessly;
+  `applyGaussianBlur` on the mask is the controllable knob that remains.
+
+**Remaining:** thumbnail previews written alongside results, progress reporting
+for long batches, and a per-operation dry-run that reports what a plan would touch
+before touching it.
 
 ### Phase 6 — deferred by the user
 

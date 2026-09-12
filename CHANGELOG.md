@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.5.0
+
+- **Edge quality can be measured now.** `lib/png.js` decodes a PNG far enough to
+  count its alpha structure — fully transparent, fully opaque, and *partly*
+  transparent pixels — by inflating the data with Node's zlib and undoing the
+  per-scanline filters. The partial count is the width of the soft band along the
+  outline, so "the edges look better" is a number rather than an opinion. Still
+  zero dependencies.
+- **Cutout refinement.** The `select-subject` path now builds a layer mask instead
+  of inverting and clearing the selection, because a mask keeps the selection's
+  anti-aliasing and can be refined afterwards. `photoshop_cutout` gained
+  `contract_px` (shrink the selection to drop the rim of background the subject
+  sat on — the stand-in for Photoshop's Matting menu, which is not scriptable
+  here) and `mask_blur_px` (blur the mask itself). On the same input,
+  `feather_px: 2, contract_px: 1, mask_blur_px: 1` takes the soft band from 1,271
+  partial pixels (0.75%) to 12,637 (7.36%).
+- **`refine_mask`** — soften a layer mask, through the mask channel. This is the
+  only controllable headless edge tool this Photoshop offers: blurring a mask
+  works while the mask is the active channel, but `adjustLevels` on a selected
+  mask channel fails, so the usual "blur then re-tighten with Levels" step is not
+  available.
+- Cutout and batch reports now say whether each output has a hard or soft edge,
+  and how many partial pixels make it up.
+
+Unavailable on this build, established by execution and therefore **not**
+promised: `defringe`, `removeWhiteMatte`, `removeBlackMatte` and
+`colorDecontaminate` — the whole Layer > Matting menu plus Select and Mask's
+colour decontamination.
+
 ## 1.4.0
 
 - **`export_layers`** — write every layer of a document to its own file. Each
