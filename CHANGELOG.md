@@ -1,5 +1,46 @@
 # Changelog
 
+## 1.2.0
+
+- **`photoshop_apply`** — run a plan of named operations against the open
+  documents: 89 operations across document, layer, adjust, filter, select, paint,
+  history and metadata. One Photoshop session per plan, wrapped in a single undo
+  step when a document is already open, with the plan validated locally before
+  Photoshop is touched and a failure report that names the failing operation,
+  what was already applied, and whether one undo reverts all of it.
+- **`photoshop_reference`** — return the operation vocabulary on demand, so the
+  standing prompt stays small while the model can still learn every operation.
+- `photoshop_cutout`'s recipe now also backs `select_subject`, `select_sky` and
+  `remove_background` as individual operations.
+- `test/e2e.mjs` verifies the whole vocabulary: it asks Photoshop for its compiled
+  handler list and asserts it matches the documentation, then applies 102
+  operations across seven plans, and runs a fixture check that every fact
+  `photoshop_inspect` reports is real.
+
+Findings from this build, all of which shaped the handlers:
+
+- Photoshop's DOM layer methods act on the **selected** layer rather than the
+  object they were called on, so every targeted operation selects its target
+  first. Targeting a layer therefore makes it active.
+- `eval` does not see Photoshop's global host objects inside the script string
+  `suspendHistory` evaluates; enum tables are resolved once at load time instead.
+- `RGB` exists in both `ChangeMode` and `NewDocumentMode` and they are not
+  interchangeable — passing one for the other is a bare "invalid enumeration
+  value".
+- Fill's `preserve transparency` defaults to **off**: on a new transparent layer,
+  preserving transparency fills nothing, which reads as success until a later
+  operation reports "the current layer is empty".
+- ActionManager cannot create a content or adjustment layer on this build, so
+  `add_color_layer` produces the same pixels through the DOM instead of promising
+  a live fill layer.
+- Releasing a clipping mask has no working command; the layer's own read-write
+  `grouped` property does it.
+- `applySmartBlur` requires four arguments, and radial blur and smart blur have
+  separate, non-interchangeable quality enumerations.
+- A failure raised inside `suspendHistory` originally left the plan reported as
+  successful with nothing applied; the recorded current operation now
+  distinguishes an operation failure from grouping being unavailable.
+
 ## 1.1.0
 
 - **`photoshop_inspect`** — read what is on screen before changing it. Reports every

@@ -47,7 +47,7 @@ Remove it with:
 dsh plugin --profile web remove dsh-plugin-photoshop
 ```
 
-## The four tools
+## The six tools
 
 ### `photoshop_status`
 
@@ -89,6 +89,45 @@ Batch cutout. The whole batch runs **inside a single Photoshop session** rather 
 Output is **PNG-24 with alpha**, named after each input.
 
 **Every output is verified against its PNG header for an alpha channel.** A file that silently came back opaque is reported as `NO ALPHA` with advice to switch mode, so a fake success cannot slip through.
+
+### `photoshop_apply` — the general-purpose hand
+
+Run an ordered list of **named operations** against the open documents. Document
+setup and resizing, layer creation / naming / ordering / grouping, masks,
+opacity, blend modes, layer styles, tonal and colour adjustments, filters, text,
+fills, selections, history and metadata.
+
+**89 operations** in eight groups:
+
+| Group | Count | Covers |
+| --- | --- | --- |
+| `document` | 15 | open, new, close, save as, resize, canvas, crop, rotate, flip, trim, flatten, merge, duplicate, mode, profile |
+| `layer` | 21 | create, delete, duplicate, rename, move, group, ungroup, opacity, fill opacity, blend mode, visibility, lock, unlock background, rasterize, smart object, merge down, masks, clipping mask, layer styles |
+| `adjust` | 12 | levels, brightness/contrast, hue/saturation, vibrance, black & white, desaturate, invert, threshold, posterize, equalize, auto levels, auto contrast |
+| `filter` | 20 | gaussian / motion / radial / smart blur, unsharp mask, sharpen ×3, add noise, dust & scratches, median, despeckle, high pass, maximum, minimum, offset, custom filter, pinch, spherize, twirl |
+| `select` | 14 | all, none, invert, clear, subject, sky, remove background, expand, contract, feather, smooth, border, save/load channel |
+| `paint` | 4 | add text, edit text, fill, add colour layer |
+| `history` | 2 | step backward, step forward |
+| `metadata` | 1 | set document metadata |
+
+Two properties make it dependable:
+
+- **The whole plan is one undo step.** With a document already open the sequence
+  runs inside `suspendHistory`, so a single Ctrl+Z reverts everything the agent
+  did. A plan that works with history itself can opt out.
+- **The plan is validated before Photoshop is involved.** A misspelled operation
+  costs a sentence, not a round trip: `Unknown operation "gausian_blur". Did you
+  mean gaussian_blur, …`.
+
+Failure reporting is designed to be actionable: which operation failed, by name
+and position, why, what had already been applied, and whether one undo reverts
+all of it.
+
+### `photoshop_reference`
+
+Return the operation vocabulary on demand, optionally one group at a time. Needs
+no running Photoshop and no document, which is what lets the standing prompt stay
+small while the model can still learn every operation.
 
 ### `photoshop_run_jsx`
 

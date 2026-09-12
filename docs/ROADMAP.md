@@ -89,13 +89,13 @@ tools, not two hundred thin ones.
 | Tool | Verb | Status |
 | --- | --- | --- |
 | `photoshop_status` | *is it there* | shipped |
-| `photoshop_inspect` | *what is on screen* | **shipped** |
-| `photoshop_apply` | *do these things* | Phase 2 |
+| `photoshop_inspect` | *what is on screen* | shipped |
+| `photoshop_apply` | *do these things* | **shipped** |
 | `photoshop_cutout` | *batch subject extraction* | shipped |
 | `photoshop_batch` | *do those things to many files* | Phase 3 |
 | `photoshop_run_jsx` | *anything else* | shipped |
-| `photoshop_reference` | *teach me the vocabulary* | Phase 2 |
-| a registered **skill** | *how to work well here* | Phase 2 |
+| `photoshop_reference` | *teach me the vocabulary* | **shipped** |
+| a registered **skill** | *how to work well here* | Phase 2, remaining |
 
 Two properties make this composable rather than a menu:
 
@@ -134,33 +134,63 @@ Why this came first: almost every real request is relative to something already
 open — "把背景层换成蓝色", "export every layer in that group". Without this the
 agent guesses at layer names, and guessing is what makes an agent unreliable.
 
-### Phase 2 — the operation vocabulary
+### Phase 2 — the operation vocabulary ✅ shipped
 
-`photoshop_apply`, with operations grouped exactly as the verification matrix
-groups them:
+`photoshop_apply` runs a plan: an ordered array of `{ op, …fields }` objects
+executed inside one Photoshop session, wrapped in a single undo step when a
+document is already open. Plus `photoshop_reference`, which returns the
+vocabulary on demand so the standing prompt stays small.
 
-- **document** — new, open, close, save_as, export, resize_image, resize_canvas,
-  crop, rotate, flip, trim, flatten, duplicate, change_mode, convert_profile
-- **transform** — free transform, scale, rotate, flip layer, align, distribute
-- **adjust** — levels, curves, brightness/contrast, hue/saturation, vibrance,
-  black & white, colour balance, photo filter, threshold, posterize, invert,
-  exposure, shadow/highlight, gradient map
-- **filter** — gaussian/motion/radial/smart blur, unsharp mask, sharpen,
-  add noise, dust & scratches, median, high pass, maximum/minimum, custom filter
-- **layer** — create, delete, duplicate, rename, reorder, group, ungroup,
-  opacity, blend mode, visibility, lock, link, rasterize, smart object,
-  mask (add / delete / apply / invert / from selection), clipping mask,
-  layer styles (drop shadow, inner shadow, outer/inner glow, bevel, stroke,
-  colour / gradient / pattern overlay)
-- **text** — create point or paragraph text, edit contents, font, size, colour,
-  justification, tracking/leading, warp
-- **shape & paint** — shape layers, fill, stroke, gradient
-- **select** — subject, sky, colour range, all/none/invert, expand, contract,
-  feather, smooth, border, save/load to channel
-- **history** — group steps into one undo entry via `suspendHistory`
-- **metadata** — read/write XMP, document title, author, copyright
+89 operations across eight groups:
 
-Plus `photoshop_reference` (the vocabulary as data) and the registered skill.
+| Group | Count | Covers |
+| --- | --- | --- |
+| `document` | 15 | open, new, close, save_as, resize, canvas, crop, rotate, flip, trim, flatten, merge, duplicate, mode, profile |
+| `layer` | 21 | create, delete, duplicate, rename, move, group, ungroup, opacity, fill opacity, blend mode, visibility, lock, unlock background, rasterize, smart object, merge down, masks (add / delete / apply / invert), clipping mask, layer styles |
+| `adjust` | 12 | levels, brightness/contrast, hue/saturation, vibrance, black & white, desaturate, invert, threshold, posterize, equalize, auto levels, auto contrast |
+| `filter` | 20 | gaussian / motion / radial / smart blur, unsharp mask, sharpen ×3, add noise, dust & scratches, median, despeckle, high pass, maximum, minimum, offset, custom filter, pinch, spherize, twirl |
+| `select` | 14 | all, none, invert, clear, subject, sky, remove background, expand, contract, feather, smooth, border, save/load channel |
+| `paint` | 4 | add text, edit text, fill, add colour layer |
+| `history` | 2 | step backward, step forward |
+| `metadata` | 1 | set document metadata |
+
+**Verified by `test/e2e.mjs`**: 102 operations across seven plans, applied against
+a real Photoshop, with a fixture check that the documented vocabulary and the
+implemented handlers are the same 89 names.
+
+#### What building it taught us about this Photoshop
+
+Every one of these was a bug first, and each one is now encoded in the handlers:
+
+- **Photoshop's DOM layer methods act on the *selected* layer, not on the object
+  you called them on.** `layerA.adjustLevels(…)` while `layerB` is active either
+  fails with "the current layer is empty" or silently adjusts `layerB`. Every
+  targeted operation therefore selects its target first — which also means
+  targeting a layer makes it active, and `photoshop_inspect` will show that.
+- **`eval` does not see Photoshop's global host objects inside the script string
+  that `suspendHistory` evaluates.** A call-time `eval('BlendMode.MULTIPLY')` in
+  that nested scope yields `undefined`, which Photoshop reports as a bare
+  "invalid enumeration value". Enum tables are now resolved once at load time.
+- **A resolved-at-call-time enum is not enough**: `RGB` exists in both
+  `ChangeMode` and `NewDocumentMode`, and passing one where the other belongs
+  produces the same opaque error. The two now have separate tables.
+- **`preserve transparency` defaults to *off* here**, not on. On a brand-new
+  transparent layer, preserving transparency fills nothing at all — a silent
+  no-op that only surfaces later as "the current layer is empty".
+- **Creating a content or adjustment layer through ActionManager is not possible
+  on this build** (`make` + `contentLayer` / `adjustmentLayer` fails with a bare
+  program error). `add_color_layer` produces the same pixels through the DOM, and
+  a live fill layer stays out of the vocabulary rather than being promised.
+- **Releasing a clipping mask has no working command** — `releaseClippingMask`
+  is unavailable and `groupEvent` with `group=false` is rejected — but the
+  layer's own read-write `grouped` property does it.
+- **Some filter signatures carry more required arguments than the reference
+  suggests**: `applySmartBlur` needs four, not three. Radial blur and smart blur
+  also have separate, non-interchangeable `quality` enumerations.
+- **Grouping a plan must not swallow an operation failure.** A failure raised
+  inside `suspendHistory` originally left the plan reported as successful with
+  nothing applied; the recorded current operation is now what distinguishes "an
+  operation failed" from "grouping is unavailable here".
 
 ### Phase 3 — batch and production
 

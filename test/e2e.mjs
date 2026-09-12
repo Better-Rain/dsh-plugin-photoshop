@@ -17,6 +17,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 import { apply } from '../lib/index.js'
+import { applyScript } from '../lib/ops-jsx.js'
+import { createSession, readJsonFile } from '../lib/ps.js'
+import { OPERATION_NAMES } from '../lib/vocabulary.js'
 
 const WORKSPACE = join(import.meta.dirname, '..')
 const SANDBOX = join(WORKSPACE, '_research', 'e2e')
@@ -128,7 +131,28 @@ function prepareInputs() {
   return source
 }
 
+/**
+ * Ask Photoshop which operation handlers it actually compiled. This is what
+ * keeps `lib/vocabulary.js` honest: the documented list and the implemented
+ * list have to be the same list.
+ * @returns the handler names and how the round trip ended.
+ */
+async function fetchHandlerNames() {
+  const session = createSession()
+  try {
+    const outcome = await session.run(
+      applyScript({ resultPath: session.resultPath, listOperations: true }),
+      { timeoutMs: 180000 },
+    )
+    const result = readJsonFile(session.resultPath)
+    return { names: Array.isArray(result?.operations) ? result.operations : [], status: outcome.status }
+  } finally {
+    session.cleanup()
+  }
+}
+
 async function main() {
+  const failures = []
   heading('registering tools')
   apply(ctx)
   for (const definition of registered.values()) {
@@ -141,6 +165,20 @@ async function main() {
   line(`copied ${source} into three inputs:`)
   line(`  ${INPUT_DIR}`)
   line('  └─ sample-a.jpg, sample-b.jpg, nested/sample-c.jpg')
+
+  heading('clearing documents left behind by an earlier run')
+  line(await callTool('photoshop_run_jsx', {
+    script: `var closed = [];
+for (var i = app.documents.length - 1; i >= 0; i--) {
+  var docName = String(app.documents[i].name);
+  if (docName.indexOf('dsh-') === 0 || docName.indexOf('fixture') >= 0) {
+    closed.push(docName);
+    app.documents[i].close(SaveOptions.DONOTSAVECHANGES);
+  }
+}
+closed.length === 0 ? 'nothing left over' : 'closed: ' + closed.join(', ')`,
+    timeout_ms: 300000,
+  }))
 
   if (process.env.DSH_PHOTOSHOP_SKIP_STATUS !== '1') {
     heading('photoshop_status')
@@ -197,13 +235,196 @@ for (var i = app.documents.length - 1; i >= 0; i--) {
     timeout_ms: 300000,
   }))
 
+  // ── photoshop_apply ───────────────────────────────────────────────────────
+  heading('photoshop_apply — the vocabulary and Photoshop must agree')
+  const handlers = await fetchHandlerNames()
+  const implemented = new Set(handlers.names)
+  const documented = new Set(OPERATION_NAMES)
+  const undocumented = OPERATION_NAMES.filter((name) => !implemented.has(name))
+  const unimplemented = handlers.names.filter((name) => !documented.has(name))
+  line(`documented: ${OPERATION_NAMES.length}   implemented in Photoshop: ${handlers.names.length}`)
+  if (handlers.names.length === 0) {
+    failures.push(`Photoshop reported no operation handlers (bridge: ${handlers.status})`)
+  } else if (undocumented.length === 0 && unimplemented.length === 0) {
+    line('they agree on every operation')
+  } else {
+    if (documented.size > 0) line(`documented but missing a handler: ${undocumented.join(', ') || '(none)'}`)
+    if (unimplemented.length > 0) line(`handler with no documentation: ${unimplemented.join(', ') || '(none)'}`)
+    if (undocumented.length > 0) failures.push(`${undocumented.length} documented operation(s) have no handler: ${undocumented.join(', ')}`)
+    if (unimplemented.length > 0) failures.push(`${unimplemented.length} handler(s) are undocumented: ${unimplemented.join(', ')}`)
+  }
+
+  const planFailures = []
+  const runPlan = async (label, ops, options = {}) => {
+    heading(label)
+    const result = await callTool('photoshop_apply', { ops, ...options })
+    line(result)
+    if (!/^Applied \d+ operation/.test(result)) planFailures.push(label)
+    return result
+  }
+
+  await runPlan('photoshop_apply — document setup and paint (nothing was open)', [
+    { op: 'new_document', width: 320, height: 240, resolution: 72, name: 'dsh-apply-fixture', fill: 'white' },
+    { op: 'add_layer', name: 'Canvas' },
+    { op: 'fill', color: '#3b7dd8' },
+    { op: 'add_text', contents: 'Apply works', name: 'Caption', size: 22, color: '#102030', x: 24, y: 48 },
+    { op: 'add_group', name: 'Stack' },
+    { op: 'move_layer', target: 'Caption', into: 'Stack' },
+    { op: 'save_as', path: `${SANDBOX}/apply-a.png`, format: 'png', overwrite: true },
+  ])
+
+  await runPlan('photoshop_apply — layers, masks and layer styles (one undo step)', [
+    { op: 'add_layer', name: 'Banner' },
+    { op: 'fill', color: '#e8b000' },
+    { op: 'set_opacity', target: 'Banner', value: 85 },
+    { op: 'set_fill_opacity', target: 'Banner', value: 90 },
+    { op: 'set_blend_mode', target: 'Banner', mode: 'multiply' },
+    { op: 'add_mask', target: 'Banner', mode: 'reveal_all' },
+    { op: 'invert_mask', target: 'Banner' },
+    { op: 'invert_mask', target: 'Banner' },
+    { op: 'layer_style', target: 'Banner', style: 'drop_shadow', distance: 5, size: 7, opacity: 50 },
+    { op: 'layer_style', target: 'Banner', style: 'stroke', width: 3, color: '#ff2d55' },
+    { op: 'duplicate_layer', target: 'Banner', name: 'Banner copy' },
+    { op: 'rename_layer', target: 'Banner copy', name: 'Hidden copy' },
+    { op: 'set_visibility', target: 'Hidden copy', visible: false },
+    { op: 'delete_layer', target: 'Hidden copy' },
+    { op: 'clipping_mask', target: 'Banner', enabled: true },
+    { op: 'clipping_mask', target: 'Banner', enabled: false },
+    { op: 'delete_mask', target: 'Banner' },
+  ])
+
+  await runPlan('photoshop_apply — groups, smart objects and fill layers', [
+    { op: 'add_color_layer', color: '#22aa66', name: 'Green' },
+    { op: 'add_group', name: 'Outer' },
+    { op: 'move_layer', target: 'Green', into: 'Outer' },
+    { op: 'ungroup', target: 'Outer' },
+    { op: 'to_smart_object', target: 'Banner' },
+    { op: 'rasterize', target: 'Banner' },
+  ])
+
+  heading('photoshop_inspect — the document the plans have been building')
+  line(await callTool('photoshop_inspect', {}))
+
+  await runPlan('photoshop_apply — selections, adjustments and filters', [
+    { op: 'select_all' },
+    { op: 'contract', pixels: 24 },
+    { op: 'feather', pixels: 5 },
+    { op: 'fill', target: 'Canvas', color: '#ffffff' },
+    { op: 'save_selection', name: 'dsh-inset' },
+    { op: 'deselect' },
+    { op: 'load_selection', name: 'dsh-inset' },
+    { op: 'deselect' },
+    { op: 'levels', target: 'Banner', input_black: 12, input_white: 244, gamma: 1.1 },
+    { op: 'brightness_contrast', target: 'Banner', brightness: 5, contrast: 10 },
+    { op: 'hue_saturation', target: 'Banner', hue: 25, saturation: 20, lightness: -5 },
+    { op: 'vibrance', target: 'Banner', vibrance: 15, saturation: 5 },
+    { op: 'black_white', target: 'Banner' },
+    { op: 'auto_levels', target: 'Banner' },
+    { op: 'auto_contrast', target: 'Banner' },
+    { op: 'desaturate', target: 'Banner' },
+    { op: 'invert', target: 'Banner' },
+    { op: 'threshold', target: 'Banner', level: 128 },
+    { op: 'posterize', target: 'Banner', levels: 6 },
+    { op: 'equalize', target: 'Banner' },
+    { op: 'gaussian_blur', target: 'Banner', radius: 2.5 },
+    { op: 'motion_blur', target: 'Banner', angle: 30, distance: 8 },
+    { op: 'radial_blur', target: 'Banner', amount: 8 },
+    { op: 'smart_blur', target: 'Banner', radius: 3, threshold: 12 },
+    { op: 'unsharp_mask', target: 'Banner', amount: 70, radius: 1.5, threshold: 3 },
+    { op: 'sharpen', target: 'Banner' },
+    { op: 'sharpen_more', target: 'Banner' },
+    { op: 'sharpen_edges', target: 'Banner' },
+    { op: 'add_noise', target: 'Banner', amount: 6 },
+    { op: 'median_noise', target: 'Banner', radius: 2 },
+    { op: 'dust_and_scratches', target: 'Banner', radius: 2, threshold: 4 },
+    { op: 'despeckle', target: 'Banner' },
+    { op: 'high_pass', target: 'Banner', radius: 3 },
+    { op: 'maximum', target: 'Banner', radius: 2 },
+    { op: 'minimum', target: 'Banner', radius: 2 },
+    { op: 'offset', target: 'Banner', horizontal: 6, vertical: 4 },
+    {
+      op: 'custom_filter',
+      target: 'Banner',
+      kernel: [0, 0, 0, 0, 0, 0, -1, -1, -1, 0, 0, -1, 9, -1, 0, 0, -1, -1, -1, 0, 0, 0, 0, 0, 0],
+    },
+    { op: 'pinch', target: 'Banner', amount: 15 },
+    { op: 'spherize', target: 'Banner', amount: 15 },
+    { op: 'twirl', target: 'Banner', angle: 30 },
+    { op: 'invert_selection' },
+    { op: 'deselect' },
+    { op: 'select_subject' },
+    { op: 'deselect' },
+    { op: 'select_sky' },
+    { op: 'deselect' },
+  ])
+
+  await runPlan(
+    'photoshop_apply — history, metadata and document reshaping (not one undo step)',
+    [
+      { op: 'add_layer', name: 'Temp' },
+      { op: 'delete_layer', target: 'Temp' },
+      { op: 'step_backward', steps: 1 },
+      { op: 'step_forward', steps: 1 },
+      { op: 'set_metadata', title: 'DSH apply fixture', author: 'dsh-plugin-photoshop', copyright: 'test asset' },
+      { op: 'resize_image', max_side: 200 },
+      { op: 'rotate_canvas', angle: 90 },
+      { op: 'flip_canvas', axis: 'horizontal' },
+      { op: 'resize_canvas', width: 260, height: 260, anchor: 'center' },
+      { op: 'crop', left: 10, top: 10, right: 210, bottom: 210 },
+      { op: 'save_as', path: `${SANDBOX}/apply-d.jpg`, format: 'jpeg', quality: 8, overwrite: true },
+      { op: 'convert_profile', profile: 'sRGB IEC61966-2.1' },
+      { op: 'change_mode', mode: 'grayscale' },
+      { op: 'save_as', path: `${SANDBOX}/apply-d-gray.png`, format: 'png', overwrite: true },
+    ],
+    { single_undo_step: false },
+  )
+
+  await runPlan(
+    'photoshop_apply — transparency, clearing and trim',
+    [
+      { op: 'new_document', width: 200, height: 200, name: 'dsh-trim-fixture', fill: 'transparent' },
+      { op: 'add_layer', name: 'Blob' },
+      { op: 'select_all' },
+      { op: 'contract', pixels: 60 },
+      { op: 'fill', color: '#123456' },
+      { op: 'deselect' },
+      { op: 'trim', based_on: 'transparent' },
+      { op: 'select_all' },
+      { op: 'clear_selection' },
+      { op: 'deselect' },
+      { op: 'close', discard: true },
+    ],
+    { single_undo_step: false },
+  )
+
+  heading('photoshop_apply — a plan that must fail, and say why')
+  const badLayer = await callTool('photoshop_apply', {
+    ops: [{ op: 'gaussian_blur', target: 'NoSuchLayer', radius: 2 }],
+  })
+  line(badLayer)
+  if (!/failed after 0 of 1 operation/.test(badLayer)) failures.push('a missing layer was not reported as a failed operation')
+  if (!/no layer named "NoSuchLayer"/.test(badLayer)) failures.push('the missing-layer error did not name the layer or suggest photoshop_inspect')
+
+  const badFields = await callTool('photoshop_apply', { ops: [{ op: 'resize_image' }] })
+  line(badFields)
+  if (!/needs width and height, or max_side/.test(badFields)) failures.push('an operation with missing fields did not explain what it needs')
+
+  const typo = await callTool('photoshop_apply', { ops: [{ op: 'gausian_blur', radius: 2 }] })
+  line(typo)
+  if (!/Unknown operation "gausian_blur"/.test(typo)) failures.push('a misspelled operation was not rejected before reaching Photoshop')
+  if (!/gaussian_blur/.test(typo)) failures.push('a misspelled operation was not offered a correction')
+
+  await runPlan('photoshop_apply — close the fixture (discarding unsaved changes)', [
+    { op: 'close', discard: true },
+  ], { single_undo_step: false })
+
   heading('photoshop_run_jsx — the escape hatch')
   line(await callTool('photoshop_run_jsx', {
     script: "app.name + ' v' + app.version + ' | docs open: ' + app.documents.length",
     timeout_ms: 180000,
   }))
 
-  const failures = []
+  for (const label of planFailures) failures.push(`the plan "${label}" did not apply cleanly`)
   if (!/\[ok\]/.test(report)) failures.push('no successful cutout in the report')
   if (!/alpha\b/.test(report)) failures.push('no alpha verification line in the report')
   if (/NO ALPHA/.test(report)) failures.push('an output PNG came back without an alpha channel')
