@@ -1,12 +1,22 @@
 # dsh-plugin-photoshop
 
-让 DeepSeek Harness 里的 AI **直接驱动你本机的 Adobe Photoshop**：批量抠图、批量跑脚本，不用你手动一张张点。
+让 DeepSeek Harness 里的 AI **直接驱动你本机的 Adobe Photoshop**：批量抠图、批量处理、跑任意 PS 脚本，不用你手动一张张点。装上之后，说一句话就能让 Photoshop 自己干活。
 
 [![Topic](https://img.shields.io/badge/topic-dsh--plugin-0e7490.svg?style=flat-square)](https://github.com/topics/dsh-plugin)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/Better-Rain/dsh-plugin-photoshop)
 
 **简体中文** · [English](README_EN.md)
 
 ---
+
+## 30 秒看懂
+
+| | |
+| --- | --- |
+| **它是什么** | 一个常驻的 DSH 插件，给 AI 装上 7 个工具，用来驱动**你本机的** Adobe Photoshop |
+| **装完会怎样** | 你可以说「把这批图抠出人物」「把每个图层导出成单独文件」，AI 直接在 Photoshop 里做完，不是给你一段代码 |
+| **和别的方案比** | 用的是 Photoshop 自己的「选择主体」——在人物、产品、插画上明显强于开源抠图模型 |
+| **代价** | 需要 Windows + 本机装好的 Photoshop。不联网，不上传，零第三方依赖 |
 
 ## 它解决什么问题
 
@@ -18,14 +28,68 @@
 
 AI 就会调用本机 Photoshop 把整批做完，产出**带透明通道的 PNG**，并逐张报告结果。
 
-## 环境要求
+## 实际输出
+
+下面都是真实运行结果，不是示意。
+
+**批量抠图 —— 40 帧，单次调用**（每张还报出边缘质量：部分透明像素的数量，也就是轮廓上软过渡带的宽度）
+
+```
+Photoshop cutout — mode select-subject, 40 image(s) queued
+succeeded 40, failed 0, skipped 0
+output: D:\cutouts
+[ok]   male_station_000.png -> male_station_000.png  670x874 -> 670x874 (alpha, soft edge (4869 partial pixels, 0.83%))
+[ok]   male_station_001.png -> male_station_001.png  671x874 -> 671x874 (alpha, soft edge (4739 partial pixels, 0.81%))
+[ok]   male_station_002.png -> male_station_002.png  672x874 -> 672x874 (alpha, soft edge (4797 partial pixels, 0.82%))
+```
+
+**一个计划 = 一个 undo 步** —— 46 个操作，用户按一次 Ctrl+Z 全部撤销
+
+```
+Applied 46 operations in a single undo step:
+  1. select_all          7. fill              13. black_white      19. posterize
+  2. contract            8. save_selection    14. auto_levels      20. equalize
+  3. feather             9. deselect          15. auto_contrast    21. gaussian_blur
+  4. fill               10. load_selection    16. desaturate       22. motion_blur
+  5. save_selection     11. deselect          17. invert           23. radial_blur
+  6. deselect           12. levels            18. threshold        24. smart_blur
+  ...
+```
+
+**动手之前先干跑，抓出写错的图层名**（一个像素都不改，测试用 history 状态数前后一致来证明）
+
+```
+Dry run — 3 operations, nothing applied
+  1. select_all           ok    target = the active layer, "Green"
+  2. gaussian_blur        ok    target "Canvas" -> "Canvas"
+  3. gaussian_blur        FAIL  target "NoSuchLayer": no layer named "NoSuchLayer" — run photoshop_inspect to see the layer tree
+
+1 operation(s) name something that does not exist. Fix those before running the plan for real.
+```
+
+**环境自检会说清"这台机器做不到什么"**，而不是让你撞上去才发现
+
+```
+Adobe Photoshop 27.0.0 (build 27.0 (20251015.r.25 d1c1320))
+select subject available: yes
+remove background available: yes
+
+Not available on this installation, established by running them:
+  - Neural Filters and Generative Fill — the commands are not available here
+  - The Layer > Matting menu: Defringe, Remove White Matte, Remove Black Matte
+  - Select and Mask / Refine Edge — a modal workspace, so use feather, contract and refine_mask instead
+```
+
+## 兼容性与要求
 
 | 项目 | 要求 |
 | --- | --- |
-| 操作系统 | Windows（用 COM 自动化接口，macOS / Linux 不支持） |
-| Photoshop | 任意现代版本（本插件在 Photoshop 2026 / 27.0 上完整验证过）；「选择主体」需要 Photoshop 2020 及以上 |
+| 操作系统 | **Windows**（走 COM 自动化接口，macOS / Linux 不支持） |
+| Photoshop | 本插件在 **Photoshop 2026 / 27.0** 上完整验证；「选择主体」需要 Photoshop 2020 及以上 |
+| DSH profile | `web` 已验证；插件在 host 平面且零依赖，任何注册了 `tools` 服务的 profile 都能用 |
 | Node.js | 20 或更高（DSH 本体已要求） |
-| 其他 | 无需 ffmpeg、无需 Python、无第三方依赖 |
+| 其他 | **无需 ffmpeg、无需 Python、无任何第三方依赖** |
+| 许可证 | MIT |
 
 ## 安装
 
@@ -36,7 +100,7 @@ dsh plugin --profile web add dsh-plugin-photoshop
 从 GitHub 源码安装（未发布到 npm 时）：
 
 ```bash
-dsh plugin --profile web add git+https://github.com/<你的用户名>/dsh-plugin-photoshop.git
+dsh plugin --profile web add git+https://github.com/Better-Rain/dsh-plugin-photoshop.git
 ```
 
 装完**重启 `dsh web`** 即生效。插件是常驻的：之后每个新会话都能用。
@@ -46,6 +110,32 @@ dsh plugin --profile web add git+https://github.com/<你的用户名>/dsh-plugin
 ```bash
 dsh plugin --profile web remove dsh-plugin-photoshop
 ```
+
+## 权限与外部服务
+
+这个插件会驱动你真实的 Photoshop，所以边界在这里说清楚。
+
+**它需要什么**
+
+- 本机装好的 Adobe Photoshop（Windows）
+- 对你**指定的**文件与目录的读写权限
+- 如果 Photoshop 当时没开着，第一次调用会**启动它**（你屏幕上会看到窗口出现，冷启动可能要一分钟）
+
+**它不会做什么**
+
+- **不联网。** 没有遥测、不需要账号、不上传任何数据——所有处理都在本机 Photoshop 里完成
+- **不改你的输入文件。** 每个文档都以「不保存」关闭，输出只写到你指定的目录
+- **不关闭你自己打开的文档。** 它只关闭自己打开的那些
+- **不改你的 Photoshop 偏好。** 脚本执行期间临时抑制弹窗（弹窗会卡死自动化），结束后立即恢复原值
+- **不覆盖已有的输出文件**，除非明确传 `overwrite: true`
+
+**动手前想确认安全，用这两个**
+
+- `photoshop_apply` 加 `dry_run: true`：先看它会碰什么，一个像素都不改
+- 一个计划在已有文档打开时是**单个 undo 步**，一次 Ctrl+Z 全部撤销
+
+**已知限制**（都是实测结论，不是推测）：整个「修边」菜单、Neural Filters、生成式填充、Camera Raw 滤镜、在低版本上缺失的命令，以及"播放录制动作"（会弹出无法从脚本端关闭的对话框）。`photoshop_status` 会把这些直接列出来。
+
 
 ## 七个工具
 
@@ -223,7 +313,7 @@ Photoshop 的 AI 在这张图里没找到主体。换 `mode: "remove-background"
 ## 开发
 
 ```bash
-git clone https://github.com/<你的用户名>/dsh-plugin-photoshop.git
+git clone https://github.com/Better-Rain/dsh-plugin-photoshop.git
 cd dsh-plugin-photoshop
 node test/e2e.mjs                 # 会对真实 Photoshop 跑一次完整验证
 node test/probe-capabilities.mjs  # 反射枚举本机 PS 的真实 API 表面
@@ -243,3 +333,9 @@ dsh plugin --profile web add "F:\路径\到\dsh-plugin-photoshop"
 ## 许可
 
 [MIT](LICENSE)
+
+---
+
+本项目为**独立社区项目**，与 DeepSeek AI / DeepSeek Harness 官方**无隶属关系**，也未被官方背书。插件名 `dsh-plugin-photoshop` 不含官方包前缀，走的是 DSH 的公开插件规范（导出 `apply(ctx)` + `cordis.patch.yml`）。
+
+许可与文档：[MIT](LICENSE) · [CHANGELOG](CHANGELOG.md) · [路线图与能力清单依据](docs/ROADMAP.md)

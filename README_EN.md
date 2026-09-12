@@ -1,12 +1,22 @@
 # dsh-plugin-photoshop
 
-Let an agent inside DeepSeek Harness **drive your own Adobe Photoshop**: batch subject cutouts and batch scripting, without clicking through hundreds of files by hand.
+Let an agent inside DeepSeek Harness **drive your own Adobe Photoshop**: batch subject cutouts, batch processing, and any scriptable Photoshop work — without clicking through hundreds of files by hand. Say one sentence and Photoshop does the work.
 
 [![Topic](https://img.shields.io/badge/topic-dsh--plugin-0e7490.svg?style=flat-square)](https://github.com/topics/dsh-plugin)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/Better-Rain/dsh-plugin-photoshop)
 
 [简体中文](README.md) · **English**
 
 ---
+
+## In thirty seconds
+
+| | |
+| --- | --- |
+| **What it is** | A resident DSH plugin that gives an agent seven tools for driving **your own** Adobe Photoshop |
+| **What changes once installed** | You can say "cut the people out of this batch" and the agent does it *inside Photoshop* — it does not hand you a script to run |
+| **Why not something else** | It uses Photoshop's own Select Subject, which is markedly better on people, products and illustration than any open-source matting model |
+| **What it costs you** | Windows and a local Photoshop. No network, no upload, no third-party dependencies |
 
 ## The problem it solves
 
@@ -18,14 +28,68 @@ With this plugin installed, you ask in plain language:
 
 and the agent drives your local Photoshop through the whole batch, producing **transparent PNGs** with a per-image report.
 
-## Requirements
+## Real output
+
+Everything below is from actual runs, not illustration.
+
+**Batch cutout — 40 frames in one call.** Each line also reports edge quality: how many pixels along the outline are partly transparent, which is the width of the soft transition band.
+
+```
+Photoshop cutout — mode select-subject, 40 image(s) queued
+succeeded 40, failed 0, skipped 0
+output: D:\cutouts
+[ok]   male_station_000.png -> male_station_000.png  670x874 -> 670x874 (alpha, soft edge (4869 partial pixels, 0.83%))
+[ok]   male_station_001.png -> male_station_001.png  671x874 -> 671x874 (alpha, soft edge (4739 partial pixels, 0.81%))
+[ok]   male_station_002.png -> male_station_002.png  672x874 -> 672x874 (alpha, soft edge (4797 partial pixels, 0.82%))
+```
+
+**One plan is one undo step** — 46 operations, reverted by a single Ctrl+Z
+
+```
+Applied 46 operations in a single undo step:
+  1. select_all          12. levels            23. radial_blur
+  2. contract            13. black_white       24. smart_blur
+  3. feather             14. auto_levels       25. unsharp_mask
+  4. fill                15. auto_contrast     26. sharpen
+  ...
+```
+
+**Dry-run a plan first and catch a wrong layer name** — changing not one pixel, which
+the test proves by showing the document's history state count is identical before
+and after
+
+```
+Dry run — 3 operations, nothing applied
+  1. select_all           ok    target = the active layer, "Green"
+  2. gaussian_blur        ok    target "Canvas" -> "Canvas"
+  3. gaussian_blur        FAIL  target "NoSuchLayer": no layer named "NoSuchLayer" — run photoshop_inspect to see the layer tree
+
+1 operation(s) name something that does not exist. Fix those before running the plan for real.
+```
+
+**The self-check says what this machine cannot do**, instead of letting you find out by failing
+
+```
+Adobe Photoshop 27.0.0 (build 27.0 (20251015.r.25 d1c1320))
+select subject available: yes
+remove background available: yes
+
+Not available on this installation, established by running them:
+  - Neural Filters and Generative Fill — the commands are not available here
+  - The Layer > Matting menu: Defringe, Remove White Matte, Remove Black Matte
+  - Select and Mask / Refine Edge — a modal workspace, so use feather, contract and refine_mask instead
+```
+
+## Requirements and compatibility
 
 | | |
 | --- | --- |
-| OS | Windows (the bridge uses COM automation; macOS and Linux are not supported) |
-| Photoshop | Any modern version — verified end to end on Photoshop 2026 (27.0). Select Subject needs Photoshop 2020 or newer. |
+| OS | **Windows** (the bridge uses COM automation; macOS and Linux are not supported) |
+| Photoshop | Verified end to end on **Photoshop 2026 (27.0)**. Select Subject needs Photoshop 2020 or newer. |
+| DSH profile | `web` is verified. The plugin is host-plane and dependency-free, so any profile that registers the `tools` service works. |
 | Node.js | 20 or newer (already required by DSH itself) |
-| Other | No ffmpeg, no Python, no third-party dependencies |
+| Other | **No ffmpeg, no Python, no third-party dependencies** |
+| Licence | MIT |
 
 ## Install
 
@@ -36,7 +100,7 @@ dsh plugin --profile web add dsh-plugin-photoshop
 From source, before it is on npm:
 
 ```bash
-dsh plugin --profile web add git+https://github.com/<you>/dsh-plugin-photoshop.git
+dsh plugin --profile web add git+https://github.com/Better-Rain/dsh-plugin-photoshop.git
 ```
 
 Restart `dsh web` afterwards. The plugin is resident: every later session has the tools.
@@ -46,6 +110,42 @@ Remove it with:
 ```bash
 dsh plugin --profile web remove dsh-plugin-photoshop
 ```
+
+## Permissions and external services
+
+This plugin drives your real Photoshop, so the boundary is spelled out here.
+
+**What it needs**
+
+- A locally installed Adobe Photoshop (Windows)
+- Read and write access to the files and directories **you name**
+- If Photoshop is not already running, the first call **starts it** (you will see the
+  window appear; a cold start can take a minute)
+
+**What it never does**
+
+- **No network.** No telemetry, no account, nothing uploaded — all the work happens
+  inside your local Photoshop.
+- **No writes to your input files.** Every document is closed without saving; output
+  goes only to the directory you name.
+- **No closing of documents you opened.** It closes only the ones it opened itself.
+- **No changes to your Photoshop preferences.** Modal dialogs are suppressed while a
+  script runs — a modal would block automation forever — and the previous value is
+  restored immediately afterwards.
+- **No overwriting of existing output** unless you pass `overwrite: true`.
+
+**Two ways to check before it acts**
+
+- `photoshop_apply` with `dry_run: true` reports what a plan would touch, changing not
+  one pixel.
+- With a document already open, a plan collapses into a **single undo step** — one
+  Ctrl+Z reverts all of it.
+
+**Known limits**, each established by running it rather than guessed: the whole
+Layer > Matting menu, Neural Filters, Generative Fill, Camera Raw as a filter, and
+playing a recorded Action (it can raise a dialog that no script can dismiss).
+`photoshop_status` lists them for you.
+
 
 ## The seven tools
 
@@ -230,7 +330,7 @@ The cutout recipe itself was established empirically: Select Subject is the `aut
 ## Development
 
 ```bash
-git clone https://github.com/<you>/dsh-plugin-photoshop.git
+git clone https://github.com/Better-Rain/dsh-plugin-photoshop.git
 cd dsh-plugin-photoshop
 node test/e2e.mjs                 # runs the full verification against your Photoshop
 node test/probe-capabilities.mjs  # reflects the real API surface of this installation
@@ -250,3 +350,12 @@ dsh plugin --profile web add "C:\path\to\dsh-plugin-photoshop"
 ## License
 
 [MIT](LICENSE)
+
+---
+
+This is an **independent community project**. It is not affiliated with, endorsed
+by, or connected to DeepSeek AI or the DeepSeek Harness team. The package name
+`dsh-plugin-photoshop` carries no official scope; it follows DSH's public plugin
+specification (exporting `apply(ctx)` plus a `cordis.patch.yml`).
+
+Licence and documents: [MIT](LICENSE) · [CHANGELOG](CHANGELOG.md) · [roadmap, and the evidence behind the capability list](docs/ROADMAP.md)
