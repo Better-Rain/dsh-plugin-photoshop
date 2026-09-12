@@ -47,7 +47,7 @@ dsh plugin --profile web add git+https://github.com/<你的用户名>/dsh-plugin
 dsh plugin --profile web remove dsh-plugin-photoshop
 ```
 
-## 六个工具
+## 七个工具
 
 ### `photoshop_status`
 
@@ -96,6 +96,25 @@ dsh plugin --profile web remove dsh-plugin-photoshop
 
 > 把 `D:\frames` 和 `D:\more\a.jpg` 一起抠图，输出到 `D:\cutouts`，先试 5 张，边缘羽化 1 像素，最长边限制 1200
 
+### `photoshop_batch` —— 批量生产
+
+把**同一套操作**跑在一批文件上，整批在**一个 Photoshop 会话内**完成。
+
+| 参数 | 说明 |
+| --- | --- |
+| `paths` | 必填。图片文件或文件夹 |
+| `ops` | 必填。对每个文件执行的操作列表（与 `photoshop_apply` 同一套词汇） |
+| `output_dir` | 必填。结果输出目录 |
+| `output_format` | `png`（默认，唯一保留透明度）、`jpeg`、`psd`、`tiff` |
+| `suffix` | 输出文件名后缀 |
+| `overwrite` | 是否覆盖已存在的输出，默认否 |
+| `recursive` | 是否递归子文件夹 |
+| `limit` | 本次最多处理几个文件 |
+
+每个文件都是**打开 → 执行计划 → 存到输出目录 → 不保存关闭**，所以原图永远不会被改写。单张失败会被记录下来，**批次继续往下跑**——一个坏帧就中断整批，对生产毫无用处。
+
+计划里**不允许**出现 `open`、`new_document`、`close`、`save_as`——打开、保存、关闭由批次自己负责。带了会被明确拦下并说明原因（`save_as` 尤其危险：它会让每个输入都写到同一个路径）。
+
 ### `photoshop_apply` —— 通用操作
 
 把一串**具名操作**按顺序作用于已打开的文档。这是插件的通用手：文档设置与缩放、图层的新建/命名/排序/编组、蒙版、不透明度、混合模式、图层样式、色调与色彩调整、滤镜、文字、填充、选区、历史、元数据。
@@ -133,6 +152,12 @@ dsh plugin --profile web remove dsh-plugin-photoshop
 ```
 photoshop_run_jsx(script: "app.activeDocument.resizeImage(UnitValue(800,'px'))\n'resized'")
 ```
+
+## 附带一个技能
+
+插件还会注册一个名为 **`photoshop`** 的技能，装着"怎么把 PS 用对"的整套工作方法：调用顺序、图层寻址、不伤用户文件的红线、以及这个版本上那些反直觉的坑（新图层是全透明的、背景层要先解锁、图层组不能填充、选择并遮住无法无头运行，等等）。
+
+它是**按需加载**的，所以常驻提示词里只有一句"做非平凡的 PS 工作前先加载它"，模型需要时再读全文。
 
 ## 安全性
 

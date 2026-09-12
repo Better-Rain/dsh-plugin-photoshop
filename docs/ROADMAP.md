@@ -92,10 +92,10 @@ tools, not two hundred thin ones.
 | `photoshop_inspect` | *what is on screen* | shipped |
 | `photoshop_apply` | *do these things* | **shipped** |
 | `photoshop_cutout` | *batch subject extraction* | shipped |
-| `photoshop_batch` | *do those things to many files* | Phase 3 |
+| `photoshop_batch` | *do those things to many files* | **shipped** |
 | `photoshop_run_jsx` | *anything else* | shipped |
-| `photoshop_reference` | *teach me the vocabulary* | **shipped** |
-| a registered **skill** | *how to work well here* | Phase 2, remaining |
+| `photoshop_reference` | *teach me the vocabulary* | shipped |
+| a registered **skill** | *how to work well here* | **shipped** (`photoshop`)|
 
 Two properties make this composable rather than a menu:
 
@@ -192,12 +192,29 @@ Every one of these was a bug first, and each one is now encoded in the handlers:
   nothing applied; the recorded current operation is now what distinguishes "an
   operation failed" from "grouping is unavailable here".
 
-### Phase 3 — batch and production
+### Phase 3 — batch and production — mostly shipped
 
-`photoshop_batch` (the same operation list over many files, one Photoshop session,
-per-file report), `photoshop_play_action` (`.atn` actions, including the shipped
-default sets), `photoshop_export_layers`, contact sheet / PDF presentation /
-photomerge wrappers, and the Image Processor equivalent.
+**Shipped:**
+
+- **`photoshop_batch`** — the same operation plan over many files, inside one
+  Photoshop session. Each file is opened, run through the plan, saved to the
+  batch output directory and closed without saving, so an input is never written
+  to. A failure on one file is recorded and the batch continues. The plan may not
+  contain `open`, `new_document`, `close` or `save_as`, because the batch owns
+  those steps — refused with the reason rather than allowed to do something
+  surprising.
+- **The `photoshop` skill** — registered through `ctx.skills.register`, carrying
+  the workflow, the addressing scheme, the safety rules and this installation's
+  quirks. Loaded on demand, so the standing prompt stays small.
+
+**Remaining:**
+
+- `play_action` — run a recorded `.atn` action, including the sets shipped with
+  Photoshop, and the batch equivalent.
+- `export_layers` — write each layer of one document to its own file.
+- Contact sheet, PDF presentation and photomerge wrappers around the `app`
+  methods reflection found (`makeContactSheet`, `makePDFPresentation`,
+  `makePhotomerge`, `makePicturePackage`).
 
 ### Phase 4 — AI and cloud, with honest availability reporting
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.0
+
+- **`photoshop_batch`** — apply one operation plan to many files inside a single
+  Photoshop session. Each file is opened, run through the plan, saved to the
+  batch output directory and closed without saving, so inputs are never written
+  to. A failure on one file is recorded and the batch carries on. Plans may not
+  contain `open`, `new_document`, `close` or `save_as`, because the batch owns
+  those steps; including one is refused with the reason, and `save_as` especially
+  so, since it would make every input write to the same path.
+- **The `photoshop` skill** — registered with `ctx.skills.register`, so the
+  working knowledge (call order, layer addressing, the safety rules, and this
+  installation's quirks) is loaded on demand instead of inflating every session's
+  prompt. The standing prompt section now just points at it.
+- Batch output formats: png (default, the only one that keeps transparency),
+  jpeg, psd and tiff. Photoshop normalises some extensions — asking for "jpeg"
+  produces ".jpg" — so output names are derived from the extension it actually
+  writes, and the save verification accepts either spelling.
+- `save_as` and batch auto-save now share one implementation, so both accept the
+  same formats and refuse the same things.
+
 ## 1.2.0
 
 - **`photoshop_apply`** — run a plan of named operations against the open

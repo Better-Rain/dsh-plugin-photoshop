@@ -25,6 +25,7 @@ const WORKSPACE = join(import.meta.dirname, '..')
 const SANDBOX = join(WORKSPACE, '_research', 'e2e')
 const INPUT_DIR = join(SANDBOX, 'in')
 const OUTPUT_DIR = join(SANDBOX, 'out')
+const BATCH_OUT = join(SANDBOX, 'batch-out')
 const FIXTURE_PATH = join(SANDBOX, 'fixture.psd').replace(/\\/g, '/')
 
 /**
@@ -118,6 +119,7 @@ function prepareInputs() {
   // The run must be repeatable: a previous run's outputs would otherwise be
   // skipped as "already exists" and read as a failure.
   rmSync(OUTPUT_DIR, { recursive: true, force: true })
+  rmSync(BATCH_OUT, { recursive: true, force: true })
   mkdirSync(join(INPUT_DIR, 'nested'), { recursive: true })
   mkdirSync(OUTPUT_DIR, { recursive: true })
   const explicit = process.argv[2]
@@ -397,6 +399,45 @@ for (var i = app.documents.length - 1; i >= 0; i--) {
     { single_undo_step: false },
   )
 
+  // ── photoshop_batch ───────────────────────────────────────────────────────
+  heading('photoshop_batch — one plan, three files, one session')
+  const batchReport = await callTool('photoshop_batch', {
+    paths: [INPUT_DIR],
+    ops: [
+      { op: 'remove_background' },
+      { op: 'trim', based_on: 'transparent' },
+      { op: 'resize_image', max_side: 200 },
+    ],
+    output_dir: BATCH_OUT,
+    output_format: 'png',
+    recursive: true,
+    timeout_ms: 600000,
+  })
+  line(batchReport)
+
+  heading('photoshop_batch — the same plan as JPEG')
+  const jpegReport = await callTool('photoshop_batch', {
+    paths: [join(INPUT_DIR, 'sample-a.jpg')],
+    ops: [{ op: 'resize_image', max_side: 120 }],
+    output_dir: BATCH_OUT,
+    output_format: 'jpeg',
+    suffix: '-small',
+    timeout_ms: 300000,
+  })
+  line(jpegReport)
+
+  heading('photoshop_batch — a plan it must refuse')
+  const refused = await callTool('photoshop_batch', {
+    paths: [join(INPUT_DIR, 'sample-a.jpg')],
+    ops: [{ op: 'save_as', path: `${BATCH_OUT}/nope.png` }],
+    output_dir: BATCH_OUT,
+    timeout_ms: 120000,
+  })
+  line(refused)
+  if (!/"save_as" cannot appear in a batch plan/.test(refused)) {
+    failures.push('a batch plan containing save_as was not refused')
+  }
+
   heading('photoshop_apply — a plan that must fail, and say why')
   const badLayer = await callTool('photoshop_apply', {
     ops: [{ op: 'gaussian_blur', target: 'NoSuchLayer', radius: 2 }],
@@ -425,6 +466,10 @@ for (var i = app.documents.length - 1; i >= 0; i--) {
   }))
 
   for (const label of planFailures) failures.push(`the plan "${label}" did not apply cleanly`)
+  if (!/succeeded 3, failed 0/.test(batchReport)) failures.push('the batch did not succeed on all three files')
+  if (/\[FAIL\]/.test(batchReport)) failures.push('the batch reported a failed file')
+  if (/NO ALPHA/.test(batchReport)) failures.push('a batch output that should have transparency came back opaque')
+  if (!/succeeded 1, failed 0/.test(jpegReport)) failures.push('the JPEG batch did not succeed')
   if (!/\[ok\]/.test(report)) failures.push('no successful cutout in the report')
   if (!/alpha\b/.test(report)) failures.push('no alpha verification line in the report')
   if (/NO ALPHA/.test(report)) failures.push('an output PNG came back without an alpha channel')

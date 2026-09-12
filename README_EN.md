@@ -47,7 +47,7 @@ Remove it with:
 dsh plugin --profile web remove dsh-plugin-photoshop
 ```
 
-## The six tools
+## The seven tools
 
 ### `photoshop_status`
 
@@ -89,6 +89,31 @@ Batch cutout. The whole batch runs **inside a single Photoshop session** rather 
 Output is **PNG-24 with alpha**, named after each input.
 
 **Every output is verified against its PNG header for an alpha channel.** A file that silently came back opaque is reported as `NO ALPHA` with advice to switch mode, so a fake success cannot slip through.
+
+### `photoshop_batch` — production runs
+
+Apply **the same list of operations** to a set of files, all inside **one
+Photoshop session**.
+
+| Parameter | Meaning |
+| --- | --- |
+| `paths` | Required. Image files and/or directories |
+| `ops` | Required. The operations applied to every file — the same vocabulary as `photoshop_apply` |
+| `output_dir` | Required. Where results are written |
+| `output_format` | `png` (default, the only one that keeps transparency), `jpeg`, `psd`, `tiff` |
+| `suffix` | Text inserted before the extension |
+| `overwrite` | Replace existing outputs. Default false |
+| `recursive` | Walk subdirectories |
+| `limit` | Process at most this many files |
+
+Each file is **opened → run through the plan → saved to the output directory →
+closed without saving**, so an input is never modified. A failure on one file is
+recorded and **the batch carries on** — stopping at the first bad frame is
+useless for production work.
+
+The plan may **not** contain `open`, `new_document`, `close` or `save_as`: the
+batch handles those itself. Including one is refused with the reason, and
+`save_as` especially so — it would make every input write to the same path.
 
 ### `photoshop_apply` — the general-purpose hand
 
@@ -132,6 +157,17 @@ small while the model can still learn every operation.
 ### `photoshop_run_jsx`
 
 The escape hatch: run arbitrary ExtendScript inside Photoshop and return its result. Batch resizing, applying recorded actions (`.atn`), compositing, inspecting documents — anything Photoshop can script, without waiting for a dedicated tool.
+
+## A skill ships with it
+
+The plugin also registers a skill named **`photoshop`** carrying the working
+knowledge: the order to call things in, how layers are addressed, the rules that
+keep the user's files safe, and this installation's counter-intuitive corners (a
+new layer is fully transparent, a background layer must be unlocked first, groups
+cannot be filled, Select and Mask cannot run headless, and so on).
+
+It is loaded **on demand**, so the standing prompt only says "load it before
+non-trivial Photoshop work" and the model reads the rest when it needs to.
 
 ## Safety
 
