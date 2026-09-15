@@ -3,7 +3,7 @@
 让 DeepSeek Harness 里的 AI **直接驱动你本机的 Adobe Photoshop**：批量抠图、批量处理、跑任意 PS 脚本，不用你手动一张张点。装上之后，说一句话就能让 Photoshop 自己干活。
 
 [![Topic](https://img.shields.io/badge/topic-dsh--plugin-0e7490.svg?style=flat-square)](https://github.com/topics/dsh-plugin)
-[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/Better-Rain/dsh-plugin-photoshop)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/better-rain/dsh-plugin-photoshop)
 
 **简体中文** · [English](README_EN.md)
 
@@ -94,16 +94,26 @@ Not available on this installation, established by running them:
 ## 安装
 
 ```bash
+dsh plugin --profile web add github:better-rain/dsh-plugin-photoshop
+```
+
+一条命令，无需构建——仓库里已包含可直接加载的 `lib/`。
+
+发布到 npm 之后也可以直接用包名（更短）：
+
+```bash
 dsh plugin --profile web add dsh-plugin-photoshop
 ```
 
-从 GitHub 源码安装（未发布到 npm 时）：
-
-```bash
-dsh plugin --profile web add git+https://github.com/Better-Rain/dsh-plugin-photoshop.git
-```
+> 包名版本需要该版本已在 npm 上发布。**当前请用上面的 GitHub 源命令**，它现在就能装。
 
 装完**重启 `dsh web`** 即生效。插件是常驻的：之后每个新会话都能用。
+
+换个 profile 就换名字（`web` 是已验证的）：
+
+```bash
+dsh plugin --profile tui add github:better-rain/dsh-plugin-photoshop
+```
 
 卸载：
 

@@ -3,7 +3,7 @@
 Let an agent inside DeepSeek Harness **drive your own Adobe Photoshop**: batch subject cutouts, batch processing, and any scriptable Photoshop work — without clicking through hundreds of files by hand. Say one sentence and Photoshop does the work.
 
 [![Topic](https://img.shields.io/badge/topic-dsh--plugin-0e7490.svg?style=flat-square)](https://github.com/topics/dsh-plugin)
-[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/Better-Rain/dsh-plugin-photoshop)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/better-rain/dsh-plugin-photoshop)
 
 [简体中文](README.md) · **English**
 
@@ -94,16 +94,27 @@ Not available on this installation, established by running them:
 ## Install
 
 ```bash
+dsh plugin --profile web add github:better-rain/dsh-plugin-photoshop
+```
+
+One command, no build step — the repository already contains the loadable `lib/`.
+
+Once it is published to npm, the package name is shorter:
+
+```bash
 dsh plugin --profile web add dsh-plugin-photoshop
 ```
 
-From source, before it is on npm:
-
-```bash
-dsh plugin --profile web add git+https://github.com/Better-Rain/dsh-plugin-photoshop.git
-```
+> The package-name form needs that version to exist on npm. **Use the GitHub form
+> above for now** — it works today.
 
 Restart `dsh web` afterwards. The plugin is resident: every later session has the tools.
+
+Any profile works, not just `web` (`web` is the one verified here):
+
+```bash
+dsh plugin --profile tui add github:better-rain/dsh-plugin-photoshop
+```
 
 Remove it with:
 
